@@ -1,0 +1,26 @@
+image_set
+    image
+        tag
+        color
+        ...
+    ...
+twitter
+ins
+pixiv
+lofter
+weibo?
+fb?
+
+youtube
+bilibili
+
+video
+text
+website
+music
+
+ARCHIVE
+NO DELETION
+So history is important: version control
+webdav
+Focus on user uploaded resource
