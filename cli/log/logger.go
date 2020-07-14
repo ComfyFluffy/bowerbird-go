@@ -11,13 +11,13 @@ import (
 )
 
 // Level defines log level of the logger
-type Level uint8
+type Level int
 
 // Logging levels
 const (
 	DEBUG Level = iota
 	INFO
-	NOTICE
+	// NOTICE
 	WARN
 	ERROR
 	LINE
@@ -32,11 +32,11 @@ const (
 
 // Colored level strings
 var (
-	cDebug  = c.SHiBlue("DEBUG")
-	cInfo   = c.SHiCyan("INFO")
-	cNotice = c.SHiGreen("NOTICE")
-	cWarn   = c.SHiYellow("WARN")
-	cError  = c.SHiRed("ERROR")
+	cDebug = c.SHiBlue("DEBUG")
+	cInfo  = c.SHiGreen("INFO")
+	// cNotice = c.SHiGreen("NOTICE")
+	cWarn  = c.SHiYellow("WARN")
+	cError = c.SHiRed("ERROR")
 )
 
 func timeNowString() string {
@@ -49,6 +49,7 @@ type Logger struct {
 	ConsoleOutput, FileOutput io.Writer
 	ConsoleLevel, FileLevel   Level
 	MaxLength                 int
+	Format                    string
 	// LineRefreshRate           time.Duration
 }
 
@@ -57,9 +58,10 @@ func New() *Logger {
 	return &Logger{
 		ConsoleOutput: c.Stderr,
 		FileOutput:    ioutil.Discard,
-		ConsoleLevel:  NOTICE,
+		ConsoleLevel:  INFO,
 		FileLevel:     10, // Will not output anything to FileOutput
 		MaxLength:     60,
+		Format:        logFormat,
 		// LineRefreshRate: 250 * time.Millisecond,
 	}
 }
@@ -69,71 +71,73 @@ var G = New()
 
 // Debug logs debug level messages
 func (l *Logger) Debug(a ...interface{}) {
-	var timeString string
-	if l.ConsoleLevel <= DEBUG || l.FileLevel <= DEBUG {
-		timeString = timeNowString()
+	var (
+		times   string
+		message string
+	)
+	if l.ConsoleLevel <= ERROR || l.FileLevel <= ERROR {
+		times = timeNowString()
+		message = fmt.Sprintln(a...)
 	}
 	if l.ConsoleLevel <= DEBUG {
-		fmt.Fprintf(l.ConsoleOutput, logFormat, c.SHiBlack(timeString), cDebug, fmt.Sprintln(a...))
+		fmt.Fprintf(l.ConsoleOutput, logFormat, c.SHiBlack(times), cDebug, message)
 	}
 	if l.FileLevel <= DEBUG {
-		fmt.Fprintf(l.FileOutput, logFormat, timeString, "DEBUG", fmt.Sprintln(a...))
+		fmt.Fprintf(l.FileOutput, logFormat, times, "DEBUG", message)
 	}
 }
 
 // Info logs info level messages
 func (l *Logger) Info(a ...interface{}) {
-	var timeString string
+	var (
+		times   string
+		message string
+	)
 	if l.ConsoleLevel <= INFO || l.FileLevel <= INFO {
-		timeString = timeNowString()
+		times = timeNowString()
+		message = fmt.Sprintln(a...)
 	}
 	if l.ConsoleLevel <= INFO {
-		fmt.Fprintf(l.ConsoleOutput, logFormat, c.SHiBlack(timeString), cInfo, fmt.Sprintln(a...))
+		fmt.Fprintf(l.ConsoleOutput, logFormat, c.SHiBlack(times), cInfo, message)
 	}
 	if l.FileLevel <= INFO {
-		fmt.Fprintf(l.FileOutput, logFormat, timeString, "INFO", fmt.Sprintln(a...))
-	}
-}
-
-// Notice logs notice level messages
-func (l *Logger) Notice(a ...interface{}) {
-	var timeString string
-	if l.ConsoleLevel <= NOTICE || l.FileLevel <= NOTICE {
-		timeString = timeNowString()
-	}
-	if l.ConsoleLevel <= NOTICE {
-		fmt.Fprintf(l.ConsoleOutput, logFormat, c.SHiBlack(timeString), cNotice, fmt.Sprintln(a...))
-	}
-	if l.FileLevel <= NOTICE {
-		fmt.Fprintf(l.FileOutput, logFormat, timeString, "NOTICE", fmt.Sprintln(a...))
+		fmt.Fprintf(l.FileOutput, logFormat, times, "INFO", message)
 	}
 }
 
 // Warn logs warn level messages
 func (l *Logger) Warn(a ...interface{}) {
-	var timeString string
+	var (
+		times   string
+		message string
+	)
 	if l.ConsoleLevel <= WARN || l.FileLevel <= WARN {
-		timeString = timeNowString()
+		times = timeNowString()
+		message = fmt.Sprintln(a...)
 	}
 	if l.ConsoleLevel <= WARN {
-		fmt.Fprintf(l.ConsoleOutput, logFormat, c.SHiBlack(timeString), cWarn, c.SHiYellow(fmt.Sprintln(a...)))
+		fmt.Fprintf(l.ConsoleOutput, logFormat, c.SHiBlack(times), cWarn, c.SHiYellow(message))
 	}
 	if l.FileLevel <= WARN {
-		fmt.Fprintf(l.FileOutput, logFormat, timeString, "WARN", fmt.Sprintln(a...))
+		fmt.Fprintf(l.FileOutput, logFormat, times, "WARN", message)
 	}
 }
 
 // Error logs error level messages
 func (l *Logger) Error(a ...interface{}) {
-	var timeString string
+	var (
+		times   string
+		message string
+	)
 	if l.ConsoleLevel <= ERROR || l.FileLevel <= ERROR {
-		timeString = timeNowString()
+		times = timeNowString()
+		message = fmt.Sprintln(a...)
 	}
 	if l.ConsoleLevel <= ERROR {
-		fmt.Fprintf(l.ConsoleOutput, logFormat, c.SHiBlack(timeString), cError, c.SHiRed(fmt.Sprintln(a...)))
+		fmt.Fprintf(l.ConsoleOutput, logFormat, c.SHiBlack(times), cError, c.SHiRed(message))
 	}
 	if l.FileLevel <= ERROR {
-		fmt.Fprintf(l.FileOutput, logFormat, timeString, "ERROR", fmt.Sprintln(a...))
+		fmt.Fprintf(l.FileOutput, logFormat, times, "ERROR", message)
 	}
 }
 
@@ -148,7 +152,7 @@ func (l *Logger) Line(message string) {
 		} else {
 			ss = message + strings.Repeat(" ", l.MaxLength-2-lm)
 		}
-		fmt.Fprint(l.ConsoleOutput, "/r", ss)
+		fmt.Fprint(l.ConsoleOutput, "\r", ss)
 	}
 }
 

@@ -24,3 +24,5 @@ NO DELETION
 So history is important: version control
 webdav
 Focus on user uploaded resource
+Auto resolve link
+<br /> is GONE
