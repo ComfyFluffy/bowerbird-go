@@ -3,26 +3,26 @@ package cli
 import (
 	"fmt"
 	"io/ioutil"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strconv"
 	"time"
 
 	"github.com/WOo0W/bowerbird/cli/color"
+	"github.com/WOo0W/bowerbird/cli/log"
+	"github.com/WOo0W/bowerbird/config"
+	d "github.com/WOo0W/bowerbird/downloader"
 	m "github.com/WOo0W/bowerbird/model"
 	"github.com/WOo0W/go-pixiv/pixiv"
+	"github.com/cavaliercoder/grab"
 	"github.com/kr/pretty"
+	"github.com/urfave/cli/v2"
 	b "go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 	"go.mongodb.org/mongo-driver/mongo/readpref"
 	"golang.org/x/net/context"
-
-	"github.com/WOo0W/bowerbird/cli/log"
-
-	"github.com/WOo0W/bowerbird/config"
-	"github.com/cavaliercoder/grab"
-	"github.com/urfave/cli/v2"
 )
 
 func loadConfigFile(conf *config.Config, path string) error {
@@ -91,91 +91,159 @@ func New() *cli.App {
 				},
 			},
 			{
-				Name: "pixiv",
-				Action: func(c *cli.Context) error {
-					ctx := context.Background()
-					client, err := mongo.Connect(ctx, options.Client().ApplyURI(conf.Database.MongoURI))
-					if err != nil {
-						log.G.Error(err)
-						return nil
-					}
-					defer client.Disconnect(ctx)
-					err = client.Ping(ctx, readpref.Primary())
-					if err != nil {
-						log.G.Error(err)
-						return nil
-					}
+				Name:  "pixiv",
+				Usage: "Pixiv stuff",
+				Flags: []cli.Flag{
+					&cli.StringFlag{
+						Name:    "user",
+						Aliases: []string{"u"},
+						Usage:   "user name input",
+					},
+					&cli.StringFlag{
+						Name:    "password",
+						Aliases: []string{"p"},
+						Usage:   "password input for the user",
+					},
+				},
+				Subcommands: []*cli.Command{
+					{
+						Name:    "bookmark",
+						Aliases: []string{"bm"},
+						Usage:   "download bookmarked images",
+						Subcommands: []*cli.Command{
+							{
+								Name:    "download",
+								Aliases: []string{"d"},
+								Action: func(c *cli.Context) error {
+									name := c.String("user")
+									password := c.String("password")
+									api := pixiv.New()
+									api.SetUser(name, password)
 
-					db := client.Database(conf.Database.DatabaseName)
-					mu := db.Collection(m.CollectionUser)
-
-					// pretty.Log(mu.InsertOne(ctx, m.User{Source: "test", SourceID: "123"}))
-
-					api := pixiv.New()
-					api.SetRefreshToken(conf.Pixiv.RefreshToken)
-					api.SetProxy("http://127.0.0.1:8888")
-					ra, err := api.ForceAuth()
-					if err != nil {
-						log.G.Error(err)
-						return nil
-					}
-					id, _ := strconv.Atoi(ra.Response.User.ID)
-
-					writeIllusts := func(ri *pixiv.RespIllusts) error {
-						for _, x := range ri.Illusts {
-							uid := strconv.Itoa(x.User.ID)
-							u := m.User{}
-							err := mu.FindOne(ctx,
-								b.D{{"sourceID", uid}, {"source", "pixiv"}},
-							).Decode(&u)
-
-							if err != nil {
-								if err == mongo.ErrNoDocuments {
-									u.Source = "pixiv"
-									u.SourceID = uid
-									u.Extension.Pixiv = &m.PixivUser{
-										IsFollowed: x.User.IsFollowed,
+									ra, err := api.ForceAuth()
+									if err != nil {
+										log.G.Error(err)
+										return nil
 									}
-									mu.InsertOne(ctx, u)
-								} else {
-									return err
-								}
-							} else {
-								if u.Extension.Pixiv == nil {
-									mu.UpdateOne(ctx,
-										b.D{{"sourceID", uid}, {"source", "pixiv"}},
-										b.D{{"$set", b.D{{"extension",
-											m.ExtUser{Pixiv: &m.PixivUser{IsFollowed: x.User.IsFollowed}}}}}},
-									)
-								}
-								if u.Extension.Pixiv.IsFollowed != x.User.IsFollowed {
-									mu.UpdateOne(ctx,
-										b.D{{"sourceID", uid}, {"source", "pixiv"}},
-										b.D{{"$set", b.D{{"isFollowed", x.User.IsFollowed}}}},
-									)
-								}
-							}
-							pretty.Log(u)
-						}
-						return nil
-					}
+									id, _ := strconv.Atoi(ra.Response.User.ID)
+									ri, err := api.User.BookmarkedIllusts(id, pixiv.RPublic, nil)
+									if err != nil {
+										log.G.Error(err)
+										return nil
+									}
+									downloader := d.New()
+									for idx, t := range ri.Illusts {
+										req, err := http.NewRequest("GET", t.ImageURLs.Original, nil)
+										if err != nil {
+											log.G.Error(err)
+										}
+										req.Header["Referer"] = []string{"https://www.pixiv.net"}
+										log.G.Info("Illust No.", idx, ":", t.ImageURLs)
+										downloader.Start(1)
+										downloader.Add(d.NewTask(req, "sth/"))
+									}
+									return nil
+								},
+							},
+							{
+								Name: "write",
+								Action: func(c *cli.Context) error {
+									name := c.String("user")
+									password := c.String("password")
+									if len(name) == 0 || len(password) == 0 {
+										log.G.Error("Must provide user name and password.")
+										return nil
+									}
 
-					ri, err := api.User.BookmarkedIllusts(id, pixiv.RPublic, nil)
+									ctx := context.Background()
+									client, err := mongo.Connect(ctx, options.Client().ApplyURI(conf.Database.MongoURI))
+									if err != nil {
+										log.G.Error(err)
+										return nil
+									}
+									defer client.Disconnect(ctx)
+									err = client.Ping(ctx, readpref.Primary())
+									if err != nil {
+										log.G.Error(err)
+										return nil
+									}
+
+									db := client.Database(conf.Database.DatabaseName)
+									mu := db.Collection(m.CollectionUser)
+
+									// pretty.Log(mu.InsertOne(ctx, m.User{Source: "test", SourceID: "123"}))
+
+									api := pixiv.New()
+									api.SetUser(name, password)
+									//api.SetRefreshToken(conf.Pixiv.RefreshToken)
+									//api.SetProxy("http://127.0.0.1:1082")
+									ra, err := api.ForceAuth()
+									if err != nil {
+										log.G.Error(err)
+										return nil
+									}
+									id, _ := strconv.Atoi(ra.Response.User.ID)
+
+									writeIllusts := func(ri *pixiv.RespIllusts) error {
+										for _, x := range ri.Illusts {
+											uid := strconv.Itoa(x.User.ID)
+											u := m.User{}
+											err := mu.FindOne(ctx,
+												b.D{{"sourceID", uid}, {"source", "pixiv"}},
+											).Decode(&u)
+
+											if err != nil {
+												if err == mongo.ErrNoDocuments {
+													u.Source = "pixiv"
+													u.SourceID = uid
+													u.Extension.Pixiv = &m.PixivUser{
+														IsFollowed: x.User.IsFollowed,
+													}
+													mu.InsertOne(ctx, u)
+												} else {
+													return err
+												}
+											} else {
+												if u.Extension.Pixiv == nil {
+													mu.UpdateOne(ctx,
+														b.D{{"sourceID", uid}, {"source", "pixiv"}},
+														b.D{{"$set", b.D{{"extension",
+															m.ExtUser{Pixiv: &m.PixivUser{IsFollowed: x.User.IsFollowed}}}}}},
+													)
+												}
+												if u.Extension.Pixiv.IsFollowed != x.User.IsFollowed {
+													mu.UpdateOne(ctx,
+														b.D{{"sourceID", uid}, {"source", "pixiv"}},
+														b.D{{"$set", b.D{{"isFollowed", x.User.IsFollowed}}}},
+													)
+												}
+											}
+											pretty.Log(u)
+										}
+										return nil
+									}
+
+									ri, err := api.User.BookmarkedIllusts(id, pixiv.RPublic, nil)
+									if err != nil {
+										log.G.Error(err)
+										return nil
+									}
+									writeIllusts(ri)
+
+									return nil
+								},
+							},
+						},
+					},
+				},
+				Action: func(c *cli.Context) error {
+					_, err := grab.NewRequest(".", "https://www.pixiv.net/")
 					if err != nil {
 						log.G.Error(err)
-						return nil
+						fmt.Println("GG")
+					} else {
+						fmt.Println("Connected to www.pixiv.net.")
 					}
-					writeIllusts(ri)
-					os.Exit(0)
-
-					for i := 0; i < 3; i++ {
-						ri, err = ri.NextIllusts()
-						if err != nil {
-							log.G.Error(err)
-							return nil
-						}
-					}
-
 					return nil
 				},
 			},

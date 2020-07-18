@@ -1,4 +1,4 @@
-package main
+package downloader
 
 import (
 	"context"
@@ -70,6 +70,14 @@ type Task struct {
 	SaveTo       string
 }
 
+//NewTask returns a new task
+func NewTask(req *http.Request, saveto string) *Task {
+	return &Task{
+		ctx:     context.Background(),
+		Request: req,
+		SaveTo:  saveto,
+	}
+}
 func (t *Task) copy(dst io.Writer, src io.Reader) (written int64, err error) {
 	bytesTicker := time.NewTicker(1 * time.Second)
 	defer func() {
@@ -298,7 +306,7 @@ func (d *Downloader) Download(t *Task) {
 // 		}
 // 	}
 // }
-
+/*
 func main() {
 	u := "https://i.pximg.net/img-original/img/2020/06/04/11/26/29/82078769_p0.jpg"
 	req, err := http.NewRequest("GET", u, nil)
@@ -326,3 +334,4 @@ func main() {
 
 	select {}
 }
+*/
