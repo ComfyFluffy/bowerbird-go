@@ -95,6 +95,11 @@ func New() *cli.App {
 				Usage: "Pixiv stuff",
 				Flags: []cli.Flag{
 					&cli.StringFlag{
+						Name:    "proxy",
+						Aliases: []string{"p"},
+						Usage:   "Build connection with proxy",
+					},
+					&cli.StringFlag{
 						Name:    "user",
 						Aliases: []string{"u"},
 						Usage:   "user name input",
@@ -118,6 +123,7 @@ func New() *cli.App {
 									name := c.String("user")
 									password := c.String("password")
 									api := pixiv.New()
+
 									api.SetUser(name, password)
 
 									ra, err := api.ForceAuth()
@@ -132,6 +138,7 @@ func New() *cli.App {
 										return nil
 									}
 									downloader := d.New()
+									downloader.Start(1)
 									for idx, t := range ri.Illusts {
 										req, err := http.NewRequest("GET", t.ImageURLs.Original, nil)
 										if err != nil {
@@ -139,7 +146,7 @@ func New() *cli.App {
 										}
 										req.Header["Referer"] = []string{"https://www.pixiv.net"}
 										log.G.Info("Illust No.", idx, ":", t.ImageURLs)
-										downloader.Start(1)
+
 										downloader.Add(d.NewTask(req, "sth/"))
 									}
 									return nil
