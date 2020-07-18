@@ -3,6 +3,8 @@ package config
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
+	"io/ioutil"
 	"os"
 	"path/filepath"
 	"time"
@@ -18,8 +20,11 @@ type Config struct {
 	Server   ServerConfig   `json:"server"`
 	Storage  StorageConfig  `json:"storage"`
 	Database DatabaseConfig `json:"database"`
+	Network  NetworkConfig  `json:"network"`
 
 	Pixiv PixivConfig `json:"pixiv"`
+
+	Path string `json:"-"`
 
 	encoder *json.Encoder
 	buf     *bytes.Buffer
@@ -31,6 +36,7 @@ type LogConfig struct {
 }
 type StorageConfig struct {
 	RootDir string `json:"rootDir"`
+	Pixiv   string `json:"pixiv"`
 }
 type ServerConfig struct {
 	IP   string `json:"ip"`
@@ -49,6 +55,10 @@ type PixivConfig struct {
 	RefreshToken string `json:"refreshToken"`
 }
 
+type NetworkConfig struct {
+	Proxy string `json:"proxy"`
+}
+
 func (c *Config) Load(b []byte) error {
 	err := json.Unmarshal(b, c)
 	if err != nil {
@@ -65,6 +75,17 @@ func (c *Config) Marshal() ([]byte, error) {
 	defer c.buf.Reset()
 	err := c.encoder.Encode(c)
 	return c.buf.Bytes(), err
+}
+
+func (c *Config) Save() error {
+	if c.Path == "" {
+		return errors.New("config save: no file specified")
+	}
+	b, err := c.Marshal()
+	if err != nil {
+		return err
+	}
+	return ioutil.WriteFile(c.Path, b, 0644)
 }
 
 func New() *Config {

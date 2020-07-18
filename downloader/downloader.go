@@ -1,16 +1,16 @@
-package main
+package downloader
 
 import (
-	"context"
-	"crypto/rand"
 	"fmt"
 	"io"
+	"io/ioutil"
 	"log"
 	"net/http"
 	"os"
 	"path/filepath"
-	"strings"
 	"time"
+
+	"github.com/WOo0W/bowerbird/helper"
 )
 
 type taskStatus int
@@ -30,47 +30,28 @@ const (
 	defaultRetryWaitMax = 60 * time.Second
 )
 
-func filenameFromPath(path string) string {
+func filenameFromPath(path string, windowsSafe bool) string {
 	b := filepath.Base(path)
-
-	if strings.ContainsAny(b, "/\\") {
-		var uuid [16]byte
-
-		io.ReadFull(rand.Reader, uuid[:])
-		uuid[6] = (uuid[6] & 0x0f) | 0x40 // Version 4
-		uuid[8] = (uuid[8] & 0x3f) | 0x80 // Variant is 10
-
-		return fmt.Sprintf("%x-%x-%x-%x-%x", uuid[0:4], uuid[4:6], uuid[6:8], uuid[8:10], uuid[10:])
+	path = replacerAll.Replace(path)
+	if windowsSafe {
+		path = replacerOnWindows.Replace(path)
 	}
-
-	// TODO: windows path replace
-	// if runtime.GOOS == "windows" {
-	// 	strings.NewReplacer("")
-	// }
 	return b
 }
 
 type Backoff func(min, max time.Duration, tries int) time.Duration
 
-func defaultBackoff(min, max time.Duration, tries int) time.Duration {
-	if sleep := (1 << tries) * min; sleep < max && sleep != 0 {
-		return sleep
-	}
-	return max
-}
-
 type Task struct {
-	ctx      context.Context
 	bytesNow int64
 
 	BytesLastSec int64
 	Err          error
 	Status       taskStatus
 	Request      *http.Request
-	SaveTo       string
+	LocalPath    string
 }
 
-func (t *Task) copy(dst io.Writer, src io.Reader) (written int64, err error) {
+func (t *Task) copy(dst io.Writer, src io.Reader, bytesChan chan int64) (written int64, err error) {
 	bytesTicker := time.NewTicker(1 * time.Second)
 	defer func() {
 		bytesTicker.Stop()
@@ -85,14 +66,16 @@ func (t *Task) copy(dst io.Writer, src io.Reader) (written int64, err error) {
 		if nr > 0 {
 			nw, ew := dst.Write(buf[0:nr])
 			if nw > 0 {
-				written += int64(nw)
+				n := int64(nw)
+				written += n
 
 				select {
 				case <-bytesTicker.C:
 					t.BytesLastSec = t.bytesNow
 					t.bytesNow = 0
 				default:
-					t.bytesNow += int64(nw)
+					t.bytesNow += n
+					bytesChan <- n
 				}
 			}
 			if ew != nil {
@@ -115,12 +98,20 @@ func (t *Task) copy(dst io.Writer, src io.Reader) (written int64, err error) {
 }
 
 type Downloader struct {
-	runningWorkers int
-	stop           chan struct{}
+	runningWorkers    int
+	stop              chan struct{}
+	globleBytesTicker *time.Ticker
+	bytesChan         chan int64
+	bytesNow,
+
+	BytesLastSec int64
 
 	in, out chan *Task
 
 	Tasks []*Task
+	Done  chan int
+
+	tasksAdded, tasksDone int
 
 	Client       *http.Client
 	RetryMax     int
@@ -136,12 +127,38 @@ func (d *Downloader) worker() {
 			return
 		case t := <-d.in:
 			d.Download(t)
+			d.out <- t
 		}
 	}
 }
 
 func (d *Downloader) Start(workers int) {
+	if d.runningWorkers > 0 {
+		return
+	}
 	d.stop = make(chan struct{})
+	d.Done = make(chan int)
+	d.globleBytesTicker = time.NewTicker(1 * time.Second)
+
+	go func() {
+		for {
+			select {
+			case b := <-d.bytesChan:
+				d.bytesNow += b
+			case <-d.globleBytesTicker.C:
+				d.BytesLastSec = d.bytesNow
+				d.bytesNow = 0
+			case <-d.stop:
+				d.bytesNow = 0
+				d.BytesLastSec = 0
+			case <-d.out:
+				d.tasksDone++
+				if d.tasksAdded == d.tasksDone {
+					d.Done <- d.tasksDone
+				}
+			}
+		}
+	}()
 	for i := 0; i < workers; i++ {
 		go d.worker()
 	}
@@ -150,6 +167,7 @@ func (d *Downloader) Start(workers int) {
 
 func (d *Downloader) Stop() {
 	close(d.stop)
+	d.globleBytesTicker.Stop()
 }
 
 // func (d *Downloader) SetWorkers(workers int) {
@@ -166,6 +184,7 @@ func (d *Downloader) Stop() {
 
 func (d *Downloader) Add(task *Task) {
 	d.Tasks = append(d.Tasks, task)
+	d.tasksAdded++
 	go func() {
 		d.in <- task
 	}()
@@ -176,7 +195,7 @@ func New() *Downloader {
 		RetryMax:     defaultRetryMax,
 		RetryWaitMax: defaultRetryWaitMax,
 		RetryWaitMin: defaultRetryWaitMin,
-		Backoff:      defaultBackoff,
+		Backoff:      helper.DefaultBackoff,
 		Client:       http.DefaultClient,
 		in:           make(chan *Task),
 		out:          make(chan *Task),
@@ -233,10 +252,11 @@ func (d *Downloader) Download(t *Task) {
 	}
 
 	t.Status = Running
-	req := t.Request.Clone(t.ctx)
+	ctx := t.Request.Context()
+	req := t.Request.Clone(ctx)
 	tries := 0
 	bytes := int64(0)
-	f, err := os.OpenFile(filepath.Join(t.SaveTo, filenameFromPath(req.URL.Path)), os.O_CREATE|os.O_APPEND, 0644)
+	f, err := os.OpenFile(t.LocalPath, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0644)
 	if err != nil {
 		onErr(err)
 		log.Println("Task ERR: os.Open:", err)
@@ -251,10 +271,22 @@ func (d *Downloader) Download(t *Task) {
 			log.Println("Task ERR: Do:", req.URL, resp.Header)
 			return
 		}
+		if !(resp.StatusCode >= 200 && resp.StatusCode < 300) {
+			r, err := ioutil.ReadAll(resp.Body)
+			if err != nil {
+				err = fmt.Errorf("http code %d with reading error: %w", resp.StatusCode, err)
+			} else {
+				err = fmt.Errorf("http code %d with message: %s", resp.StatusCode, r)
+			}
+
+			onErr(err)
+			log.Println(err)
+			return
+		}
 
 		tries++
 
-		written, err := t.copy(f, resp.Body)
+		written, err := t.copy(f, resp.Body, d.bytesChan)
 
 		resp.Body.Close()
 		if written == resp.ContentLength {
@@ -274,8 +306,8 @@ func (d *Downloader) Download(t *Task) {
 			return
 		}
 		select {
-		case <-t.ctx.Done():
-			log.Println("Task ctx.Done", t.ctx.Err(), t.Status)
+		case <-ctx.Done():
+			log.Println("Task ctx.Done", ctx.Err(), t.Status)
 			return
 		case <-time.After(d.Backoff(d.RetryWaitMin, d.RetryWaitMax, tries)):
 		}
@@ -309,7 +341,7 @@ func main() {
 
 	d := New()
 	d.Start(1)
-	d.Add(&Task{ctx: context.Background(), Request: req, SaveTo: "dl"})
+	d.Add(&Task{Request: req, LocalPath: "dl"})
 
 	// p := &Pool{
 	// 	Backoff:      defaultBackoff,

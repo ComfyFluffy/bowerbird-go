@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
+	"net/http"
 	"strings"
 	"time"
 
@@ -163,5 +164,22 @@ func (l *Logger) Print(a ...interface{}) {
 	}
 	if l.FileLevel <= PRINT {
 		fmt.Fprint(l.FileOutput, a...)
+	}
+}
+
+type LoggingRoundTripper struct {
+	Logger   *Logger
+	Underlay http.RoundTripper
+}
+
+func (lr *LoggingRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
+	lr.Logger.Debug(req.Method, req.URL)
+	return lr.Underlay.RoundTrip(req)
+}
+
+func NewLoggingRoundTripper(l *Logger, r http.RoundTripper) *LoggingRoundTripper {
+	return &LoggingRoundTripper{
+		Logger:   l,
+		Underlay: r,
 	}
 }
