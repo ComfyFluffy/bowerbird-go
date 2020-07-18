@@ -237,12 +237,12 @@ func New() *cli.App {
 					},
 				},
 				Action: func(c *cli.Context) error {
-					_, err := grab.NewRequest(".", "https://www.pixiv.net/")
+					_, err := http.Get("https://www.pixiv.net/")
 					if err != nil {
 						log.G.Error(err)
 						fmt.Println("GG")
 					} else {
-						fmt.Println("Connected to www.pixiv.net.")
+						fmt.Println("Connected to pivix.net")
 					}
 					return nil
 				},
