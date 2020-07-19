@@ -2,15 +2,17 @@ package cli
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"io/ioutil"
 	"net/http"
 	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
+	"strconv"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/WOo0W/bowerbird/cli/log"
 	"github.com/WOo0W/bowerbird/config"
@@ -23,10 +25,15 @@ import (
 	"golang.org/x/net/proxy"
 )
 
-func setProxy(tr *http.Transport, uri string) error {
+var pximgDate = regexp.MustCompile(
+	`(\d{4}/\d{2}/\d{2}/\d{2}/\d{2}/\d{2})`,
+)
+
+func setProxy(tr *http.Transport, uri string) {
 	pr, err := url.Parse(uri)
 	if err != nil {
-		return err
+		log.G.Error(err)
+		return
 	}
 
 	switch strings.ToLower(pr.Scheme) {
@@ -42,13 +49,14 @@ func setProxy(tr *http.Transport, uri string) error {
 		}
 		spd, err := proxy.SOCKS5("tcp", pr.Host, spauth, proxy.Direct)
 		if err != nil {
-			return err
+			log.G.Error(err)
+			return
 		}
 		tr.DialContext = spd.(proxy.ContextDialer).DialContext
 	default:
-		return errors.New("set proxy: unsupported protocol")
+		log.G.Error("set proxy: unsupported protocol")
+		return
 	}
-	return nil
 }
 
 func loadConfigFile(conf *config.Config, path string) error {
@@ -79,6 +87,9 @@ func loadConfigFile(conf *config.Config, path string) error {
 	if err != nil {
 		log.G.Warn("Can not save config file:", path, "\n", err)
 	}
+
+	log.G.ConsoleLevel = log.SwitchLevel(conf.Log.ConsoleLevel)
+	log.G.FileLevel = log.SwitchLevel(conf.Log.FileLevel)
 	return nil
 }
 
@@ -132,26 +143,49 @@ func authPixiv(api *pixiv.AppAPI, c *config.Config) error {
 	return nil
 }
 
-func downloadIllusts(il []pixiv.Illust, dl *downloader.Downloader) error {
+// pximgSingleFileWithDate returns path like `C:\test\123\27427531_p0_20120522161622.png`.
+// date: string like 2012/05/22/16/16/22
+func pximgSingleFileWithDate(basePath string, userID int, u *url.URL) string {
+	fn := filepath.Base(u.Path)
+	i := strings.LastIndexByte(fn, '.')
+	return filepath.Join(basePath, strconv.Itoa(userID), fn[:i]+"_"+strings.ReplaceAll(pximgDate.FindString(u.Path), "/", "")+fn[i:])
+}
+
+func downloadIllusts(il []pixiv.Illust, dl *downloader.Downloader, api *pixiv.AppAPI, basePath string) {
+	time.Sleep(100 * time.Millisecond)
 	for _, i := range il {
 		if i.MetaSinglePage.OriginalImageURL != "" {
 			req, err := http.NewRequest("GET", i.MetaSinglePage.OriginalImageURL, nil)
 			if err != nil {
-				return err
+				log.G.Error(err)
+				continue
 			}
-			req.Header["Referer"] = []string{"https://app-api.pixiv.net"}
-			dl.Add(&downloader.Task{Request: req, LocalPath: ""})
+			api.SetHeaders(req)
+			req.Header["Referer"] = []string{"https://app-api.pixiv.net/"}
+
+			dl.Add(&downloader.Task{
+				Request:   req,
+				LocalPath: pximgSingleFileWithDate(basePath, i.User.ID, req.URL)})
 		} else {
 			for _, iu := range i.MetaPages {
 				req, err := http.NewRequest("GET", iu.ImageURLs.Original, nil)
 				if err != nil {
-					return err
+					log.G.Error(err)
+					continue
 				}
+				api.SetHeaders(req)
+				req.Header["Referer"] = []string{"https://app-api.pixiv.net/"}
+
 				dl.Add(
-					&downloader.Task{Request: req, LocalPath: ""},
+					&downloader.Task{
+						Request: req,
+						LocalPath: filepath.Join(
+							basePath, strconv.Itoa(i.User.ID),
+							strconv.Itoa(i.ID)+"_"+
+								strings.ReplaceAll(pximgDate.FindString(req.URL.Path), "/", ""),
+							filepath.Base(req.URL.Path))},
 				)
 			}
 		}
 	}
-	return nil
 }

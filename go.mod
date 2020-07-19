@@ -4,11 +4,12 @@ go 1.14
 
 require (
 	github.com/PuerkitoBio/goquery v1.5.1
-	github.com/WOo0W/go-pixiv v1.0.4
+	github.com/WOo0W/go-pixiv v1.1.1
 	github.com/adam-hanna/arrayOperations v0.2.6
 	github.com/andybalholm/cascadia v1.2.0 // indirect
 	github.com/cpuguy83/go-md2man/v2 v2.0.0 // indirect
 	github.com/denisenkom/go-mssqldb v0.0.0-20200620013148-b91950f658ec // indirect
+	github.com/dustin/go-humanize v1.0.0
 	github.com/fatih/color v1.9.0
 	github.com/google/go-cmp v0.5.0 // indirect
 	github.com/jinzhu/gorm v1.9.14

@@ -4,11 +4,13 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
-	"log"
 	"net/http"
 	"os"
 	"path/filepath"
+	"sync"
 	"time"
+
+	"github.com/WOo0W/bowerbird/cli/log"
 
 	"github.com/WOo0W/bowerbird/helper"
 )
@@ -49,6 +51,7 @@ type Task struct {
 	Status       taskStatus
 	Request      *http.Request
 	LocalPath    string
+	Overwrite    bool
 }
 
 func (t *Task) copy(dst io.Writer, src io.Reader, bytesChan chan int64) (written int64, err error) {
@@ -99,22 +102,24 @@ func (t *Task) copy(dst io.Writer, src io.Reader, bytesChan chan int64) (written
 
 type Downloader struct {
 	runningWorkers    int
-	stop              chan struct{}
+	stopAll           chan struct{}
 	globleBytesTicker *time.Ticker
 	bytesChan         chan int64
 	bytesNow,
 
 	BytesLastSec int64
 
+	Logger *log.Logger
+
 	in, out chan *Task
 
 	Tasks []*Task
 	Done  chan int
 
-	tasksAdded, tasksDone int
+	wg sync.WaitGroup
 
 	Client       *http.Client
-	RetryMax     int
+	TriesMax     int
 	RetryWaitMin time.Duration
 	RetryWaitMax time.Duration
 	Backoff      Backoff
@@ -123,21 +128,21 @@ type Downloader struct {
 func (d *Downloader) worker() {
 	for {
 		select {
-		case <-d.stop:
+		case <-d.stopAll:
 			return
 		case t := <-d.in:
 			d.Download(t)
-			d.out <- t
+			d.wg.Done()
+			// d.out <- t
 		}
 	}
 }
 
 func (d *Downloader) Start(workers int) {
+	d.Logger.Debug(fmt.Sprintf("Starting downloader with %d workers", workers))
 	if d.runningWorkers > 0 {
 		return
 	}
-	d.stop = make(chan struct{})
-	d.Done = make(chan int)
 	d.globleBytesTicker = time.NewTicker(1 * time.Second)
 
 	go func() {
@@ -148,14 +153,11 @@ func (d *Downloader) Start(workers int) {
 			case <-d.globleBytesTicker.C:
 				d.BytesLastSec = d.bytesNow
 				d.bytesNow = 0
-			case <-d.stop:
+			case <-d.stopAll:
 				d.bytesNow = 0
 				d.BytesLastSec = 0
-			case <-d.out:
-				d.tasksDone++
-				if d.tasksAdded == d.tasksDone {
-					d.Done <- d.tasksDone
-				}
+				return
+				// case <-d.out:
 			}
 		}
 	}()
@@ -166,10 +168,12 @@ func (d *Downloader) Start(workers int) {
 }
 
 func (d *Downloader) Stop() {
-	close(d.stop)
+	d.Logger.Debug("Stopping downloader")
+	close(d.stopAll)
 	d.globleBytesTicker.Stop()
 }
 
+// TODO: *Downloader.SetWorkers
 // func (d *Downloader) SetWorkers(workers int) {
 // 	if workers > d.runningWorkers {
 // 		for i := 0; i < workers - d.runningWorkers; i++ {
@@ -183,70 +187,49 @@ func (d *Downloader) Stop() {
 // }
 
 func (d *Downloader) Add(task *Task) {
+	d.Logger.Debug("Adding *Task", task.Request.URL, task.LocalPath)
 	d.Tasks = append(d.Tasks, task)
-	d.tasksAdded++
+	d.wg.Add(1)
 	go func() {
 		d.in <- task
 	}()
 }
 
+func (d *Downloader) Wait() {
+	d.wg.Wait()
+}
+
 func New() *Downloader {
+	return NewWithCliet(&http.Client{Transport: &http.Transport{}})
+}
+
+func NewWithCliet(c *http.Client) *Downloader {
 	return &Downloader{
-		RetryMax:     defaultRetryMax,
+		TriesMax:     defaultRetryMax,
 		RetryWaitMax: defaultRetryWaitMax,
 		RetryWaitMin: defaultRetryWaitMin,
 		Backoff:      helper.DefaultBackoff,
-		Client:       http.DefaultClient,
-		in:           make(chan *Task),
+		Client:       c,
+		Logger:       log.G,
+		in:           make(chan *Task, 8192),
 		out:          make(chan *Task),
+		bytesChan:    make(chan int64),
+		stopAll:      make(chan struct{}),
+		Done:         make(chan int),
 		Tasks:        []*Task{},
 	}
 }
 
-// type Pool struct {
-// 	mu             sync.Mutex
-// 	stop           chan bool
-// 	taskChan       chan *Task
-// 	runningWorkers int
-
-// 	Tasks  []*Task
-// 	Client *http.Client
-
-// 	RetryMax     int
-// 	RetryWaitMin time.Duration
-// 	RetryWaitMax time.Duration
-// 	Backoff      Backoff
-// }
-
-// func (pool *Pool) Start(workers int) {
-// 	if pool.runningWorkers != 0 {
-// 		return
-// 	}
-// 	pool.runningWorkers = workers
-// 	for i := 0; i < workers; i++ {
-// 		go pool.Worker()
-// 	}
-// 	go func() {
-// 		for {
-// 			select {
-// 			case <-pool.stop:
-// 				return
-// 			}
-// 		}
-// 	}()
-// }
-
-// func (pool *Pool) Stop(workers int) {
-// 	if workers == 0 {
-// 		workers = pool.runningWorkers
-// 	}
-// 	for i := 0; i < workers+2; i++ {
-// 		pool.stop <- true
-// 	}
-// }
-
 func (d *Downloader) Download(t *Task) {
-	onErr := func(err error) {
+	if !t.Overwrite {
+		if _, err := os.Stat(t.LocalPath); !os.IsNotExist(err) {
+			d.Logger.Debug("file already exists:", t.LocalPath)
+			return
+		}
+	}
+
+	onErr := func(message string, err error) {
+		d.Logger.Error(fmt.Sprintf("Task failed: download %s to %s: %s: %s", t.Request.URL, t.LocalPath, message, err))
 		t.Status = Failed
 		t.Err = err
 	}
@@ -256,105 +239,79 @@ func (d *Downloader) Download(t *Task) {
 	req := t.Request.Clone(ctx)
 	tries := 0
 	bytes := int64(0)
-	f, err := os.OpenFile(t.LocalPath, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0644)
+	part := t.LocalPath + ".part"
+	os.MkdirAll(filepath.Dir(t.LocalPath), 0755)
+	f, err := os.OpenFile(part, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0644)
 	if err != nil {
-		onErr(err)
-		log.Println("Task ERR: os.Open:", err)
+		onErr("open file", err)
 		return
 	}
 	defer f.Close()
 
+	fi, err := f.Stat()
+	if err != nil {
+		d.Logger.Error("stat file", part, err)
+	} else {
+		bytes = fi.Size()
+	}
+
 	for {
+		if bytes > 0 {
+			req.Header["Range"] = []string{fmt.Sprintf("bytes=%d-", bytes)}
+			d.Logger.Debug("Trying again with req.Header[\"Range\"] modified:", bytes)
+		}
+
+		tries++
+		if tries > d.TriesMax {
+			onErr("max tries", err)
+			return
+		}
+		if tries > 1 {
+			select {
+			case <-ctx.Done():
+				d.Logger.Debug("Task canceled by context:", ctx.Err())
+				return
+			case <-time.After(d.Backoff(d.RetryWaitMin, d.RetryWaitMax, tries)):
+			}
+		}
+
 		resp, err := d.Client.Do(req)
 		if err != nil {
-			onErr(err)
-			log.Println("Task ERR: Do:", req.URL, resp.Header)
-			return
+			d.Logger.Debug("Response error:", err, req.URL)
+			continue
 		}
 		if !(resp.StatusCode >= 200 && resp.StatusCode < 300) {
 			r, err := ioutil.ReadAll(resp.Body)
+			resp.Body.Close()
 			if err != nil {
 				err = fmt.Errorf("http code %d with reading error: %w", resp.StatusCode, err)
 			} else {
 				err = fmt.Errorf("http code %d with message: %s", resp.StatusCode, r)
 			}
 
-			onErr(err)
-			log.Println(err)
+			onErr("http code is not 2xx", err)
 			return
 		}
-
-		tries++
 
 		written, err := t.copy(f, resp.Body, d.bytesChan)
 
 		resp.Body.Close()
 		if written == resp.ContentLength {
 			t.Status = Finished
-			log.Println("Task Finished, bytes:", written)
+			d.Logger.Info("Task finished, filename:", filepath.Base(t.LocalPath))
+			f.Close()
+			err := os.Rename(part, t.LocalPath)
+			if err != nil {
+				onErr("rename .part file", err)
+			}
 			return
 		}
+		d.Logger.Debug(fmt.Sprintf("ContentLength doesn't match, bytes written: %d, url: %s, saving to: %s, error: %s", written, req.URL, t.LocalPath, err))
 		if err := f.Sync(); err != nil {
-			onErr(err)
-			log.Println("Task ERR: f.Sync()", err)
+			onErr("sync file", err)
 			return
 		}
-		log.Println("Task ERR: Copy:", err)
-		if tries > d.RetryMax {
-			onErr(err)
-			log.Println("Max tries", tries, resp)
-			return
-		}
-		select {
-		case <-ctx.Done():
-			log.Println("Task ctx.Done", ctx.Err(), t.Status)
-			return
-		case <-time.After(d.Backoff(d.RetryWaitMin, d.RetryWaitMax, tries)):
-		}
+
 		bytes += written
-		req.Header["Range"] = []string{fmt.Sprintf("bytes=%d-", bytes)}
 	}
-}
-
-// func (pool *Pool) Worker() {
-// Loop:
-// 	for {
-// 		select {
-// 		case <-pool.stop:
-// 			log.Println("worker: exit")
-// 			break Loop
-// 		case t := <-pool.taskChan:
-// 			log.Println("worker: task started", t)
-// 			pool.Download(t)
-// 			log.Println("worker: task finished", t)
-// 		}
-// 	}
-// }
-
-func main() {
-	u := "https://i.pximg.net/img-original/img/2020/06/04/11/26/29/82078769_p0.jpg"
-	req, err := http.NewRequest("GET", u, nil)
-	if err != nil {
-		log.Fatal(err)
-	}
-	req.Header["Referer"] = []string{"https://www.pixiv.net"}
-
-	d := New()
-	d.Start(1)
-	d.Add(&Task{Request: req, LocalPath: "dl"})
-
-	// p := &Pool{
-	// 	Backoff:      defaultBackoff,
-	// 	RetryMax:     defaultRetryMax,
-	// 	RetryWaitMax: defaultRetryWaitMax,
-	// 	RetryWaitMin: defaultRetryWaitMin,
-	// 	Tasks:        []*Task{},
-	// 	Client:       &http.Client{},
-	// 	taskChan:     make(chan *Task),
-	// }
-
-	// p.Tasks = append(p.Tasks, &Task{ctx: context.Background(), Req: req, SaveTo: partFilename(u)})
-	// p.Start(1)
-
-	select {}
 }

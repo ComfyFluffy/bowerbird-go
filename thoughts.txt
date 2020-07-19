@@ -26,3 +26,22 @@ webdav
 Focus on user uploaded resource
 Auto resolve link
 <br /> is GONE
+
+pixiv
+
+update database
+auto
+download
+filter: bookmark rate, etc.
+
+
+[INFO] xxx Pixiv: Updated user 123, no new illusts
+[INFO] xxx Pixiv: Updated user xxxx (456), 3 new illusts found
+[INFO] xxx Pixiv: Illust qwqqwq (323232) matched
+
+[DL: 412KB][CONN: 1][Pixiv user xxxx (456): 0/1][NEXT: 10 mins]
+\Downloader
+
+Auto rerty
+list
+cli

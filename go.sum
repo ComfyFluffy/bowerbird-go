@@ -1,8 +1,8 @@
 github.com/BurntSushi/toml v0.3.1/go.mod h1:xHWCNGjB5oqiDr8zfno3MHue2Ht5sIBksp03qcyfWMU=
 github.com/PuerkitoBio/goquery v1.5.1 h1:PSPBGne8NIUWw+/7vFBV+kG2J/5MOjbzc7154OaKCSE=
 github.com/PuerkitoBio/goquery v1.5.1/go.mod h1:GsLWisAFVj4WgDibEWF4pvYnkVQBpKBKeU+7zCJoLcc=
-github.com/WOo0W/go-pixiv v1.0.4 h1:PdRHh/oW3llp8L4pM7p1I1JNy68P74Ac5EzokDPaoB0=
-github.com/WOo0W/go-pixiv v1.0.4/go.mod h1:UeDXLW2rUnwZLh9bfuxeG0kHGyuGlsBad1ePmEpFvA4=
+github.com/WOo0W/go-pixiv v1.1.1 h1:Zco9QmkrxUe1ShzsemqBIixtkBwOwFTfT+IeYJEb5cU=
+github.com/WOo0W/go-pixiv v1.1.1/go.mod h1:UeDXLW2rUnwZLh9bfuxeG0kHGyuGlsBad1ePmEpFvA4=
 github.com/adam-hanna/arrayOperations v0.2.6 h1:QZC99xC8MgUawXnav7bFMejs/dm7YySnDpMx3oZzz2Y=
 github.com/adam-hanna/arrayOperations v0.2.6/go.mod h1:iIzkSjP91FnE66cUFNAjjUJVmjyAwCH0SXnWsx2nbdk=
 github.com/andybalholm/cascadia v1.1.0 h1:BuuO6sSfQNFRu1LppgbD25Hr2vLYW25JvxHs5zzsLTo=
@@ -21,6 +21,8 @@ github.com/denisenkom/go-mssqldb v0.0.0-20191124224453-732737034ffd h1:83Wprp6RO
 github.com/denisenkom/go-mssqldb v0.0.0-20191124224453-732737034ffd/go.mod h1:xbL0rPBG9cCiLr28tMa8zpbdarY27NDyej4t/EjAShU=
 github.com/denisenkom/go-mssqldb v0.0.0-20200620013148-b91950f658ec h1:NfhRXXFDPxcF5Cwo06DzeIaE7uuJtAUhsDwH3LNsjos=
 github.com/denisenkom/go-mssqldb v0.0.0-20200620013148-b91950f658ec/go.mod h1:xbL0rPBG9cCiLr28tMa8zpbdarY27NDyej4t/EjAShU=
+github.com/dustin/go-humanize v1.0.0 h1:VSnTsYCnlFHaM2/igO1h6X3HA71jcobQuxemgkq4zYo=
+github.com/dustin/go-humanize v1.0.0/go.mod h1:HtrtbFcZ19U5GC7JDqmcUSB87Iq5E25KnS6fMYU6eOk=
 github.com/erikstmartin/go-testdb v0.0.0-20160219214506-8d10e4a1bae5 h1:Yzb9+7DPaBjB8zlTR87/ElzFsnQfuHnVUVqpZZIcV5Y=
 github.com/erikstmartin/go-testdb v0.0.0-20160219214506-8d10e4a1bae5/go.mod h1:a2zkGnVExMxdzMo3M0Hi/3sEU+cWnZpSni0O6/Yb/P0=
 github.com/fatih/color v1.9.0 h1:8xPHl4/q1VyqGIPif1F+1V3Y3lSmrq01EabUW3CoW5s=

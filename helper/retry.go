@@ -1,6 +1,8 @@
 package helper
 
-import "time"
+import (
+	"time"
+)
 
 func DefaultBackoff(min, max time.Duration, tries int) time.Duration {
 	if sleep := (1 << tries) * min; sleep < max && sleep != 0 {
@@ -14,10 +16,13 @@ type Retryer struct {
 	TriesMax         int
 }
 
-func (r *Retryer) Retry(f func() error) {
+func (r *Retryer) Retry(f func() error, end func(error) bool) {
 	tries := 0
 	for tries < r.TriesMax {
 		tries++
-
+		err := f()
+		if end(err) {
+			return
+		}
 	}
 }

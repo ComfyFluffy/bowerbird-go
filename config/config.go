@@ -15,14 +15,21 @@ var (
 	defaultRoot = filepath.Join(userHome, ".bowerbird")
 )
 
-type Config struct {
-	Log      LogConfig      `json:"log"`
-	Server   ServerConfig   `json:"server"`
-	Storage  StorageConfig  `json:"storage"`
-	Database DatabaseConfig `json:"database"`
-	Network  NetworkConfig  `json:"network"`
+func join(root, sub string) string {
+	if filepath.IsAbs(sub) {
+		return sub
+	}
+	return filepath.Join(root, sub)
+}
 
-	Pixiv PixivConfig `json:"pixiv"`
+type Config struct {
+	Log      LogConfig
+	Server   ServerConfig
+	Storage  StorageConfig
+	Database DatabaseConfig
+	Network  NetworkConfig
+
+	Pixiv PixivConfig
 
 	Path string `json:"-"`
 
@@ -31,32 +38,41 @@ type Config struct {
 }
 
 type LogConfig struct {
-	Level string `json:"level"`
-	File  string `json:"file"`
+	ConsoleLevel string
+	FileLevel    string
+	File         string
 }
 type StorageConfig struct {
-	RootDir string `json:"rootDir"`
-	Pixiv   string `json:"pixiv"`
+	RootDir string
+	Pixiv   string
 }
+
+func (s *StorageConfig) ParsedPixiv() string {
+	return join(s.RootDir, s.Pixiv)
+}
+
 type ServerConfig struct {
-	IP   string `json:"ip"`
-	Port uint16 `json:"port"`
+	IP   string
+	Port uint16
 }
 type DatabaseConfig struct {
-	MongoURI      string        `json:"mongoURI"`
-	DatabaseName  string        `json:"databaseName"`
-	Timeout       string        `json:"timeout"`
+	MongoURI      string
+	DatabaseName  string
+	Timeout       string
 	TimeoutParsed time.Duration `json:"-"`
 }
 type ScheduleConfig struct {
 }
 
 type PixivConfig struct {
-	RefreshToken string `json:"refreshToken"`
+	RefreshToken    string
+	Language        string
+	APIProxy        string
+	DownloaderProxy string
 }
 
 type NetworkConfig struct {
-	Proxy string `json:"proxy"`
+	GlobalProxy string
 }
 
 func (c *Config) Load(b []byte) error {
@@ -97,8 +113,9 @@ func New() *Config {
 		encoder: m,
 		buf:     &buf,
 		Log: LogConfig{
-			File:  "log/bowerbird.log",
-			Level: "INFO",
+			File:         "log/bowerbird.log",
+			ConsoleLevel: "INFO",
+			FileLevel:    "INFO",
 		},
 		Server: ServerConfig{
 			IP:   "127.0.0.1",
@@ -106,6 +123,7 @@ func New() *Config {
 		},
 		Storage: StorageConfig{
 			RootDir: defaultRoot,
+			Pixiv:   "pixiv",
 		},
 		Database: DatabaseConfig{
 			// https://docs.mongodb.com/manual/reference/connection-string/

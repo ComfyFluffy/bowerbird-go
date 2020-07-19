@@ -25,6 +25,19 @@ const (
 	PRINT
 )
 
+func SwitchLevel(s string) Level {
+	switch strings.ToLower(s) {
+	case "info":
+		return INFO
+	case "warn":
+		return WARN
+	case "error":
+		return ERROR
+	default:
+		return DEBUG
+	}
+}
+
 // Default formats
 const (
 	timeFormat = "01/02 15:04:05"
@@ -81,7 +94,7 @@ func (l *Logger) Debug(a ...interface{}) {
 		message = fmt.Sprintln(a...)
 	}
 	if l.ConsoleLevel <= DEBUG {
-		fmt.Fprintf(l.ConsoleOutput, logFormat, c.SHiBlack(times), cDebug, message)
+		fmt.Fprintf(l.ConsoleOutput, logFormat, c.SHiBlack(times), cDebug, c.SHiBlack(message))
 	}
 	if l.FileLevel <= DEBUG {
 		fmt.Fprintf(l.FileOutput, logFormat, times, "DEBUG", message)

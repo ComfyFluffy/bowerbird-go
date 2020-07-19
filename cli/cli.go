@@ -8,8 +8,8 @@ import (
 
 	"github.com/WOo0W/bowerbird/cli/color"
 	"github.com/WOo0W/bowerbird/downloader"
-	"github.com/WOo0W/bowerbird/helper"
 	"github.com/WOo0W/go-pixiv/pixiv"
+	"github.com/dustin/go-humanize"
 
 	"github.com/WOo0W/bowerbird/cli/log"
 
@@ -82,14 +82,15 @@ func New() *cli.App {
 
 							tr := &http.Transport{}
 							hc := &http.Client{Transport: log.NewLoggingRoundTripper(log.G, tr)}
-							if conf.Network.Proxy != "" {
-								err := setProxy(tr, conf.Network.Proxy)
-								if err != nil {
-									log.G.Error(err)
-									return nil
-								}
+							if conf.Pixiv.APIProxy != "" {
+								setProxy(tr, conf.Pixiv.APIProxy)
+							} else if conf.Network.GlobalProxy != "" {
+								setProxy(tr, conf.Network.GlobalProxy)
 							}
+
 							papi := pixiv.NewWithClient(hc)
+							papi.SetLanguage([]string{"zh-cn"})
+
 							err := authPixiv(papi, conf)
 							if err != nil {
 								log.G.Error("pixiv auth failed:", err)
@@ -105,50 +106,34 @@ func New() *cli.App {
 							}
 							log.G.Info(fmt.Sprintf("pixiv: Logged as %s (%d)", papi.AuthResponse.Response.User.Name, papi.UserID))
 
-							dl := downloader.New()
-							dl.Start(5)
-
-							re := &helper.Retryer{WaitMax: 10 * time.Second, WaitMin: 2 * time.Second, TriesMax: 3}
-
-							il := []pixiv.Illust{}
-							var r *pixiv.RespIllusts
-							re.Retry(
-								func() (err error) {
-									r, err = papi.User.BookmarkedIllusts(uid, restrict, nil)
-									if err != nil {
-										return err
-									}
-									il = r.Illusts
-									return nil
-								},
-							)
-
-							re.Retry(
-								func() (err error) {
-									r, err = r.NextIllusts()
-									if err != nil {
-										return err
-									}
-									il = append(il, r.Illusts...)
-									return nil
-								},
-							)
-
-							// tries := 0
-							// for r.NextURL != "" {
-							// 	tries++
-							// 	r, err = r.NextIllusts()
-							// 	if err != nil {
-							// 		return nil, err
-							// 	}
-							// }
-
-							if err != nil {
-								log.G.Error(err)
-								return nil
+							trd := &http.Transport{MaxConnsPerHost: 128}
+							hcd := &http.Client{Transport: trd}
+							if conf.Pixiv.DownloaderProxy != "" {
+								setProxy(tr, conf.Pixiv.APIProxy)
+							} else if conf.Network.GlobalProxy != "" {
+								setProxy(tr, conf.Network.GlobalProxy)
 							}
 
-							log.G.Info(r.Illusts[:3])
+							dl := downloader.NewWithCliet(hcd)
+							dl.Client.Transport = log.NewLoggingRoundTripper(log.G, dl.Client.Transport)
+							dl.Start(5)
+
+							// re := &helper.Retryer{WaitMax: 10 * time.Second, WaitMin: 2 * time.Second, TriesMax: 3}
+							r, err := papi.User.BookmarkedIllusts(uid, restrict, nil)
+
+							downloadIllusts(r.Illusts, dl, papi, conf.Storage.ParsedPixiv())
+
+							go func() {
+								ticker := time.NewTicker(1 * time.Second)
+								defer ticker.Stop()
+								for {
+									select {
+									case <-ticker.C:
+										fmt.Printf("Speed: %s/s\n", humanize.Bytes(uint64(dl.BytesLastSec)))
+									}
+								}
+							}()
+							dl.Wait()
 							return nil
 						},
 					},
