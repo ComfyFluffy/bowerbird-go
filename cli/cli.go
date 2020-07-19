@@ -106,7 +106,7 @@ func New() *cli.App {
 							}
 							log.G.Info(fmt.Sprintf("pixiv: Logged as %s (%d)", papi.AuthResponse.Response.User.Name, papi.UserID))
 
-							trd := &http.Transport{MaxConnsPerHost: 128}
+							trd := &http.Transport{}
 							hcd := &http.Client{Transport: trd}
 							if conf.Pixiv.DownloaderProxy != "" {
 								setProxy(tr, conf.Pixiv.APIProxy)

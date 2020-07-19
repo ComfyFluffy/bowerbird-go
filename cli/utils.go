@@ -30,6 +30,9 @@ var pximgDate = regexp.MustCompile(
 )
 
 func setProxy(tr *http.Transport, uri string) {
+	if uri == "none" {
+		return
+	}
 	pr, err := url.Parse(uri)
 	if err != nil {
 		log.G.Error(err)
