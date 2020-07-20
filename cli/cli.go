@@ -41,6 +41,10 @@ func New() *cli.App {
 		},
 		// Load and save config file
 		Before: func(c *cli.Context) error {
+			cfile := c.String("config")
+			if cfile != "" {
+				configFile = cfile
+			}
 			err := loadConfigFile(conf, configFile)
 
 			if err != nil {
@@ -89,7 +93,7 @@ func New() *cli.App {
 							}
 
 							papi := pixiv.NewWithClient(hc)
-							papi.SetLanguage([]string{"zh-cn"})
+							papi.SetLanguage("zh-cn")
 
 							err := authPixiv(papi, conf)
 							if err != nil {
@@ -118,9 +122,15 @@ func New() *cli.App {
 							dl.Client.Transport = log.NewLoggingRoundTripper(log.G, dl.Client.Transport)
 							dl.Start(5)
 
-							// re := &helper.Retryer{WaitMax: 10 * time.Second, WaitMin: 2 * time.Second, TriesMax: 3}
+							//re := &helper.Retryer{WaitMax: 10 * time.Second, WaitMin: 2 * time.Second, TriesMax: 3}
 							r, err := papi.User.BookmarkedIllusts(uid, restrict, nil)
-
+							if err != nil {
+								var current byte = 1
+								for current < conf.Schedule.DefaultRetryMax {
+									log.G.Error(err, "Retrying.")
+									r, err = papi.User.BookmarkedIllusts(uid, restrict, nil)
+								}
+							}
 							downloadIllusts(r.Illusts, dl, papi, conf.Storage.ParsedPixiv())
 
 							go func() {

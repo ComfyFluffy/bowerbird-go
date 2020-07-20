@@ -22,12 +22,14 @@ func join(root, sub string) string {
 	return filepath.Join(root, sub)
 }
 
+//Config of this program
 type Config struct {
 	Log      LogConfig
 	Server   ServerConfig
 	Storage  StorageConfig
 	Database DatabaseConfig
 	Network  NetworkConfig
+	Schedule ScheduleConfig
 
 	Pixiv PixivConfig
 
@@ -62,6 +64,7 @@ type DatabaseConfig struct {
 	TimeoutParsed time.Duration `json:"-"`
 }
 type ScheduleConfig struct {
+	DefaultRetryMax byte
 }
 
 type PixivConfig struct {
@@ -131,6 +134,9 @@ func New() *Config {
 			DatabaseName:  "bowerbird",
 			Timeout:       "15s",
 			TimeoutParsed: 15 * time.Second,
+		},
+		Schedule: ScheduleConfig{
+			DefaultRetryMax: 10,
 		},
 	}
 }
