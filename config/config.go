@@ -64,7 +64,6 @@ type DatabaseConfig struct {
 	TimeoutParsed time.Duration `json:"-"`
 }
 type ScheduleConfig struct {
-	DefaultRetryMax byte
 }
 
 type PixivConfig struct {
@@ -134,9 +133,6 @@ func New() *Config {
 			DatabaseName:  "bowerbird",
 			Timeout:       "15s",
 			TimeoutParsed: 15 * time.Second,
-		},
-		Schedule: ScheduleConfig{
-			DefaultRetryMax: 10,
 		},
 	}
 }

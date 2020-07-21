@@ -8,6 +8,7 @@ import (
 
 	"github.com/WOo0W/bowerbird/cli/color"
 	"github.com/WOo0W/bowerbird/downloader"
+	"github.com/WOo0W/bowerbird/helper"
 	"github.com/WOo0W/go-pixiv/pixiv"
 	"github.com/dustin/go-humanize"
 
@@ -122,15 +123,18 @@ func New() *cli.App {
 							dl.Client.Transport = log.NewLoggingRoundTripper(log.G, dl.Client.Transport)
 							dl.Start(5)
 
-							//re := &helper.Retryer{WaitMax: 10 * time.Second, WaitMin: 2 * time.Second, TriesMax: 3}
+							re := &helper.Retryer{WaitMax: 10 * time.Second, WaitMin: 2 * time.Second, TriesMax: 3}
 							r, err := papi.User.BookmarkedIllusts(uid, restrict, nil)
 							if err != nil {
-								var current byte = 1
-								for current < conf.Schedule.DefaultRetryMax {
+								re.Retry(func() error {
 									log.G.Error(err, "Retrying.")
 									r, err = papi.User.BookmarkedIllusts(uid, restrict, nil)
-								}
+									return err
+								}, func(e error) bool {
+									return e == nil
+								})
 							}
+
 							downloadIllusts(r.Illusts, dl, papi, conf.Storage.ParsedPixiv())
 
 							go func() {
