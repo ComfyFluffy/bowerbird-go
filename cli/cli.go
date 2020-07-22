@@ -18,6 +18,7 @@ import (
 	"github.com/urfave/cli/v2"
 )
 
+//New returns an APP
 func New() *cli.App {
 	conf := config.New()
 	configFile := ""

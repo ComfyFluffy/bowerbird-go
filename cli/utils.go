@@ -154,6 +154,7 @@ func pximgSingleFileWithDate(basePath string, userID int, u *url.URL) string {
 	return filepath.Join(basePath, strconv.Itoa(userID), fn[:i]+"_"+strings.ReplaceAll(pximgDate.FindString(u.Path), "/", "")+fn[i:])
 }
 
+//downloadIllusts takes illust arrays, a downloader object, the pixiv api, and download path to download illusts
 func downloadIllusts(il []pixiv.Illust, dl *downloader.Downloader, api *pixiv.AppAPI, basePath string) {
 	time.Sleep(100 * time.Millisecond)
 	for _, i := range il {

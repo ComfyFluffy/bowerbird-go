@@ -17,9 +17,13 @@ import (
 
 type taskStatus int
 
+//different status of a task
 const (
+	//Pending
 	Pending taskStatus = iota
+	//Running
 	Running
+	//Finished
 	Finished
 	Paused
 	Canceled
@@ -27,11 +31,12 @@ const (
 )
 
 const (
-	defaultRetryMax     = 30
-	defaultRetryWaitMin = 1 * time.Second
-	defaultRetryWaitMax = 60 * time.Second
+	defaultRetryMax     = 30               //the default maximum number of retries
+	defaultRetryWaitMin = 1 * time.Second  //the default minimum retry wait time
+	defaultRetryWaitMax = 60 * time.Second //the default maximum retry wait time
 )
 
+//filenameFromPath get the name of the file from a path string
 func filenameFromPath(path string, windowsSafe bool) string {
 	b := filepath.Base(path)
 	path = replacerAll.Replace(path)
@@ -41,8 +46,10 @@ func filenameFromPath(path string, windowsSafe bool) string {
 	return b
 }
 
+//Backoff returns the wait time of a function
 type Backoff func(min, max time.Duration, tries int) time.Duration
 
+//Task stores information of a download task
 type Task struct {
 	bytesNow int64
 
