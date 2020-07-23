@@ -155,25 +155,15 @@ func pximgSingleFileWithDate(basePath string, userID int, u *url.URL) string {
 	return filepath.Join(basePath, strconv.Itoa(userID), fn[:i]+"_"+strings.ReplaceAll(pximgDate.FindString(u.Path), "/", "")+fn[i:])
 }
 
-//downloadIllusts takes illust arrays, a downloader object, the pixiv api, and download path to download illusts
-func downloadIllusts(il []pixiv.Illust, dl *downloader.Downloader, api *pixiv.AppAPI, basePath string) {
+//downloadIllusts takes illust arrays, a downloader object, the pixiv api, illust limits and download path to download illusts
+//If limit is 0, it means no limit
+func downloadIllusts(il []pixiv.Illust, l uint, dl *downloader.Downloader, api *pixiv.AppAPI, basePath string) {
 	time.Sleep(100 * time.Millisecond)
+	var c uint = 0
 	for _, i := range il {
-		if i.MetaSinglePage.OriginalImageURL != "" {
-			req, err := http.NewRequest("GET", i.MetaSinglePage.OriginalImageURL, nil)
-			if err != nil {
-				log.G.Error(err)
-				continue
-			}
-			api.SetHeaders(req)
-			req.Header["Referer"] = []string{"https://app-api.pixiv.net/"}
-
-			dl.Add(&downloader.Task{
-				Request:   req,
-				LocalPath: pximgSingleFileWithDate(basePath, i.User.ID, req.URL)})
-		} else {
-			for _, iu := range i.MetaPages {
-				req, err := http.NewRequest("GET", iu.ImageURLs.Original, nil)
+		if c < l {
+			if i.MetaSinglePage.OriginalImageURL != "" {
+				req, err := http.NewRequest("GET", i.MetaSinglePage.OriginalImageURL, nil)
 				if err != nil {
 					log.G.Error(err)
 					continue
@@ -181,15 +171,31 @@ func downloadIllusts(il []pixiv.Illust, dl *downloader.Downloader, api *pixiv.Ap
 				api.SetHeaders(req)
 				req.Header["Referer"] = []string{"https://app-api.pixiv.net/"}
 
-				dl.Add(
-					&downloader.Task{
-						Request: req,
-						LocalPath: filepath.Join(
-							basePath, strconv.Itoa(i.User.ID),
-							strconv.Itoa(i.ID)+"_"+
-								strings.ReplaceAll(pximgDate.FindString(req.URL.Path), "/", ""),
-							filepath.Base(req.URL.Path))},
-				)
+				dl.Add(&downloader.Task{
+					Request:   req,
+					LocalPath: pximgSingleFileWithDate(basePath, i.User.ID, req.URL)})
+				c++
+			} else {
+				for _, iu := range i.MetaPages {
+					req, err := http.NewRequest("GET", iu.ImageURLs.Original, nil)
+					if err != nil {
+						log.G.Error(err)
+						continue
+					}
+					api.SetHeaders(req)
+					req.Header["Referer"] = []string{"https://app-api.pixiv.net/"}
+
+					dl.Add(
+						&downloader.Task{
+							Request: req,
+							LocalPath: filepath.Join(
+								basePath, strconv.Itoa(i.User.ID),
+								strconv.Itoa(i.ID)+"_"+
+									strings.ReplaceAll(pximgDate.FindString(req.URL.Path), "/", ""),
+								filepath.Base(req.URL.Path))},
+					)
+					c++
+				}
 			}
 		}
 	}

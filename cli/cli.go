@@ -23,7 +23,7 @@ func New() *cli.App {
 	conf := config.New()
 	configFile := ""
 	noDB := false
-	limit := 0
+	var limit uint
 
 	var papi *pixiv.AppAPI
 
@@ -45,7 +45,7 @@ func New() *cli.App {
 				Usage:       "Do not connect to the database",
 				Destination: &noDB,
 			},
-			&cli.IntFlag{
+			&cli.UintFlag{
 				Name:    "limit",
 				Aliases: []string{"l"},
 				Usage:   "Limit how many images to download",
@@ -58,7 +58,7 @@ func New() *cli.App {
 				configFile = cfile
 			}
 			err := loadConfigFile(conf, configFile)
-			limit = c.Int("limit")
+			limit = c.Uint("limit")
 			if err != nil {
 				log.G.Error("Error loading config:", err)
 				os.Exit(1)
@@ -156,10 +156,7 @@ func New() *cli.App {
 							}
 							illusts := r.Illusts
 
-							if limit != 0 {
-								illusts = illusts[:limit]
-							}
-							downloadIllusts(illusts, dl, papi, conf.Storage.ParsedPixiv())
+							downloadIllusts(illusts, limit, dl, papi, conf.Storage.ParsedPixiv())
 
 							go func() {
 								ticker := time.NewTicker(1 * time.Second)
