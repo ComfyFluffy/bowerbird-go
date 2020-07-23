@@ -75,6 +75,25 @@ func New() *cli.App {
 						Usage: "get images with the given tags",
 					},
 				},
+				Before: func(c *cli.Context) error {
+
+					if conf.Pixiv.APIProxy != "" {
+						setProxy(tr, conf.Pixiv.APIProxy)
+					} else if conf.Network.GlobalProxy != "" {
+						setProxy(tr, conf.Network.GlobalProxy)
+					}
+
+					papi = pixiv.NewWithClient(hc)
+					papi.SetLanguage("zh-cn")
+
+					err := authPixiv(papi, conf)
+					if err != nil {
+						log.G.Error("pixiv auth failed:", err)
+						os.Exit(1508)
+					}
+					log.G.Info(fmt.Sprintf("pixiv: Logged as %s (%d)", papi.AuthResponse.Response.User.Name, papi.UserID))
+					return nil
+				},
 				Subcommands: []*cli.Command{
 					{
 						Name: "bookmark",
@@ -89,24 +108,7 @@ func New() *cli.App {
 								Usage: "Download the private bookmarks only",
 							},
 						},
-						Before: func(c *cli.Context) error {
 
-							if conf.Pixiv.APIProxy != "" {
-								setProxy(tr, conf.Pixiv.APIProxy)
-							} else if conf.Network.GlobalProxy != "" {
-								setProxy(tr, conf.Network.GlobalProxy)
-							}
-
-							papi = pixiv.NewWithClient(hc)
-							papi.SetLanguage("zh-cn")
-
-							err := authPixiv(papi, conf)
-							if err != nil {
-								log.G.Error("pixiv auth failed:", err)
-								return nil
-							}
-							return nil
-						},
 						Action: func(c *cli.Context) error {
 							log.G.Info("bookmark")
 
@@ -128,7 +130,6 @@ func New() *cli.App {
 							if c.IsSet("user") {
 								uid = c.Int("user")
 							}
-							log.G.Info(fmt.Sprintf("pixiv: Logged as %s (%d)", papi.AuthResponse.Response.User.Name, papi.UserID))
 
 							trd := &http.Transport{}
 							hcd := &http.Client{Transport: trd}
