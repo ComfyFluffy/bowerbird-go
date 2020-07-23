@@ -159,9 +159,10 @@ func pximgSingleFileWithDate(basePath string, userID int, u *url.URL) string {
 //If limit is 0, it means no limit
 func downloadIllusts(il []pixiv.Illust, l uint, dl *downloader.Downloader, api *pixiv.AppAPI, basePath string) {
 	time.Sleep(100 * time.Millisecond)
+
 	var c uint = 0
 	for _, i := range il {
-		if c < l {
+		if c < l || l == 0 {
 			if i.MetaSinglePage.OriginalImageURL != "" {
 				req, err := http.NewRequest("GET", i.MetaSinglePage.OriginalImageURL, nil)
 				if err != nil {
@@ -174,7 +175,7 @@ func downloadIllusts(il []pixiv.Illust, l uint, dl *downloader.Downloader, api *
 				dl.Add(&downloader.Task{
 					Request:   req,
 					LocalPath: pximgSingleFileWithDate(basePath, i.User.ID, req.URL)})
-				c++
+
 			} else {
 				for _, iu := range i.MetaPages {
 					req, err := http.NewRequest("GET", iu.ImageURLs.Original, nil)
@@ -194,9 +195,9 @@ func downloadIllusts(il []pixiv.Illust, l uint, dl *downloader.Downloader, api *
 									strings.ReplaceAll(pximgDate.FindString(req.URL.Path), "/", ""),
 								filepath.Base(req.URL.Path))},
 					)
-					c++
 				}
 			}
+			c++
 		}
 	}
 }
