@@ -23,7 +23,12 @@ func New() *cli.App {
 	conf := config.New()
 	configFile := ""
 	noDB := false
+	limit := 0
 
+	var papi *pixiv.AppAPI
+
+	tr := &http.Transport{}
+	hc := &http.Client{Transport: log.NewLoggingRoundTripper(log.G, tr)}
 	return &cli.App{
 		Writer:    color.Stdout,
 		ErrWriter: color.Stderr,
@@ -40,6 +45,11 @@ func New() *cli.App {
 				Usage:       "Do not connect to the database",
 				Destination: &noDB,
 			},
+			&cli.IntFlag{
+				Name:    "limit",
+				Aliases: []string{"l"},
+				Usage:   "Limit how many images to download",
+			},
 		},
 		// Load and save config file
 		Before: func(c *cli.Context) error {
@@ -48,7 +58,7 @@ func New() *cli.App {
 				configFile = cfile
 			}
 			err := loadConfigFile(conf, configFile)
-
+			limit = c.Int("limit")
 			if err != nil {
 				log.G.Error("Error loading config:", err)
 				os.Exit(1)
@@ -59,6 +69,12 @@ func New() *cli.App {
 			{
 				Name:  "pixiv",
 				Usage: "Get images and infomation from pixiv.net",
+				Flags: []cli.Flag{
+					&cli.StringSliceFlag{
+						Name:  "tags",
+						Usage: "get images with the given tags",
+					},
+				},
 				Subcommands: []*cli.Command{
 					{
 						Name: "bookmark",
@@ -73,6 +89,24 @@ func New() *cli.App {
 								Usage: "Download the private bookmarks only",
 							},
 						},
+						Before: func(c *cli.Context) error {
+
+							if conf.Pixiv.APIProxy != "" {
+								setProxy(tr, conf.Pixiv.APIProxy)
+							} else if conf.Network.GlobalProxy != "" {
+								setProxy(tr, conf.Network.GlobalProxy)
+							}
+
+							papi = pixiv.NewWithClient(hc)
+							papi.SetLanguage("zh-cn")
+
+							err := authPixiv(papi, conf)
+							if err != nil {
+								log.G.Error("pixiv auth failed:", err)
+								return nil
+							}
+							return nil
+						},
 						Action: func(c *cli.Context) error {
 							log.G.Info("bookmark")
 
@@ -86,22 +120,6 @@ func New() *cli.App {
 							// 	}
 							// }
 
-							tr := &http.Transport{}
-							hc := &http.Client{Transport: log.NewLoggingRoundTripper(log.G, tr)}
-							if conf.Pixiv.APIProxy != "" {
-								setProxy(tr, conf.Pixiv.APIProxy)
-							} else if conf.Network.GlobalProxy != "" {
-								setProxy(tr, conf.Network.GlobalProxy)
-							}
-
-							papi := pixiv.NewWithClient(hc)
-							papi.SetLanguage("zh-cn")
-
-							err := authPixiv(papi, conf)
-							if err != nil {
-								log.G.Error("pixiv auth failed:", err)
-								return nil
-							}
 							restrict := pixiv.RPublic
 							if c.Bool("private") {
 								restrict = pixiv.RPrivate
@@ -135,8 +153,12 @@ func New() *cli.App {
 									return e == nil
 								})
 							}
+							illusts := r.Illusts
 
-							downloadIllusts(r.Illusts, dl, papi, conf.Storage.ParsedPixiv())
+							if limit != 0 {
+								illusts = illusts[:limit]
+							}
+							downloadIllusts(illusts, dl, papi, conf.Storage.ParsedPixiv())
 
 							go func() {
 								ticker := time.NewTicker(1 * time.Second)

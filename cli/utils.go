@@ -135,6 +135,7 @@ func authPixiv(api *pixiv.AppAPI, c *config.Config) error {
 		_, err := api.ForceAuth()
 		if pixiv.IsInvalidCredentials(err) {
 			u, p := getUserPass()
+			fmt.Println(u, p)
 			api.SetUser(u, p)
 			_, err := api.ForceAuth()
 			if err != nil {
