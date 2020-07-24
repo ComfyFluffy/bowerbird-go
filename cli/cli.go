@@ -45,11 +45,6 @@ func New() *cli.App {
 				Usage:       "Do not connect to the database",
 				Destination: &noDB,
 			},
-			&cli.UintFlag{
-				Name:    "limit",
-				Aliases: []string{"l"},
-				Usage:   "Limit how many images to download",
-			},
 		},
 		// Load and save config file
 		Before: func(c *cli.Context) error {
@@ -58,7 +53,6 @@ func New() *cli.App {
 				configFile = cfile
 			}
 			err := loadConfigFile(conf, configFile)
-			limit = c.Uint("limit")
 			if err != nil {
 				log.G.Error("Error loading config:", err)
 				os.Exit(1)
@@ -79,9 +73,14 @@ func New() *cli.App {
 						Aliases: []string{"st"},
 						Usage:   "Save the refresh token after logging in",
 					},
+					&cli.UintFlag{
+						Name:    "limit",
+						Aliases: []string{"l"},
+						Usage:   "Limit how many images to download",
+					},
 				},
 				Before: func(c *cli.Context) error {
-
+					limit = c.Uint("limit")
 					if conf.Pixiv.APIProxy != "" {
 						setProxy(tr, conf.Pixiv.APIProxy)
 					} else if conf.Network.GlobalProxy != "" {
@@ -178,6 +177,14 @@ func New() *cli.App {
 							return nil
 						},
 					},
+				},
+				Action: func(c *cli.Context) error {
+					s := c.StringSlice("tags")
+					for _, t := range s {
+						fmt.Println(t)
+					}
+
+					return nil
 				},
 				// Action: func(c *cli.Context) error {
 				// 	log.G.Info("pixiv")
