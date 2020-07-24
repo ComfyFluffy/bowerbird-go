@@ -69,9 +69,9 @@ func New() *cli.App {
 						Usage: "get images with the given tags",
 					},
 					&cli.BoolFlag{
-						Name:    "savetoken",
+						Name:    "notoken",
 						Aliases: []string{"st"},
-						Usage:   "Save the refresh token after logging in",
+						Usage:   "Don't save the refresh token after logging in",
 					},
 					&cli.UintFlag{
 						Name:    "limit",
@@ -96,9 +96,10 @@ func New() *cli.App {
 						os.Exit(1508)
 					}
 					log.G.Info(fmt.Sprintf("pixiv: Logged as %s (%d)", papi.AuthResponse.Response.User.Name, papi.UserID))
-					if c.Bool("savetoken") {
+					if !c.Bool("notoken") {
 						conf.Pixiv.RefreshToken = papi.RefreshToken
 					}
+					conf.Save()
 					return nil
 				},
 				Subcommands: []*cli.Command{

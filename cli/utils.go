@@ -17,6 +17,7 @@ import (
 	"github.com/WOo0W/bowerbird/cli/log"
 	"github.com/WOo0W/bowerbird/config"
 	"github.com/WOo0W/bowerbird/downloader"
+	"github.com/WOo0W/bowerbird/helper"
 	"github.com/WOo0W/go-pixiv/pixiv"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
@@ -161,7 +162,7 @@ func downloadIllusts(il *pixiv.RespIllusts, l uint, dl *downloader.Downloader, a
 	time.Sleep(100 * time.Millisecond)
 
 	var c uint = 0
-
+	re := &helper.Retryer{WaitMax: 10 * time.Second, WaitMin: 2 * time.Second, TriesMax: 3}
 	for {
 		for _, i := range il.Illusts {
 			if c < l || l == 0 {
@@ -209,7 +210,13 @@ func downloadIllusts(il *pixiv.RespIllusts, l uint, dl *downloader.Downloader, a
 			if er == pixiv.ErrEmptyNextURL {
 				return
 			}
-			log.G.Error(er)
+			re.Retry(func() error {
+				log.G.Error(er, "Retrying.")
+				il, er = il.NextIllusts()
+				return er
+			}, func(e error) bool {
+				return e == nil
+			})
 		}
 	}
 
