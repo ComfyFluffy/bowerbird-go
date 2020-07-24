@@ -154,9 +154,7 @@ func New() *cli.App {
 									return e == nil
 								})
 							}
-							illusts := r.Illusts
-
-							downloadIllusts(illusts, limit, dl, papi, conf.Storage.ParsedPixiv())
+							downloadIllusts(r, limit, dl, papi, conf.Storage.ParsedPixiv())
 
 							go func() {
 								ticker := time.NewTicker(1 * time.Second)
