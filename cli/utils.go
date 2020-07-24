@@ -162,7 +162,7 @@ func downloadIllusts(il *pixiv.RespIllusts, l uint, dl *downloader.Downloader, a
 
 	var c uint = 0
 
-	for il.NextURL != "" {
+	for {
 		for _, i := range il.Illusts {
 			if c < l || l == 0 {
 				if i.MetaSinglePage.OriginalImageURL != "" {
@@ -200,11 +200,15 @@ func downloadIllusts(il *pixiv.RespIllusts, l uint, dl *downloader.Downloader, a
 					}
 				}
 				c++
+				log.G.Debug(c, " items has checked.")
 			}
 		}
 		var er error
 		il, er = il.NextIllusts()
 		if er != nil {
+			if er == pixiv.ErrEmptyNextURL {
+				return
+			}
 			log.G.Error(er)
 		}
 	}

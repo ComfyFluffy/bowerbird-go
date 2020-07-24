@@ -24,7 +24,7 @@ func New() *cli.App {
 	configFile := ""
 	noDB := false
 	var limit uint
-
+	log.G.ConsoleLevel = log.DEBUG
 	var papi *pixiv.AppAPI
 
 	tr := &http.Transport{}
@@ -74,6 +74,11 @@ func New() *cli.App {
 						Name:  "tags",
 						Usage: "get images with the given tags",
 					},
+					&cli.BoolFlag{
+						Name:    "savetoken",
+						Aliases: []string{"st"},
+						Usage:   "Save the refresh token after logging in",
+					},
 				},
 				Before: func(c *cli.Context) error {
 
@@ -92,6 +97,9 @@ func New() *cli.App {
 						os.Exit(1508)
 					}
 					log.G.Info(fmt.Sprintf("pixiv: Logged as %s (%d)", papi.AuthResponse.Response.User.Name, papi.UserID))
+					if c.Bool("savetoken") {
+						conf.Pixiv.RefreshToken = papi.RefreshToken
+					}
 					return nil
 				},
 				Subcommands: []*cli.Command{
@@ -262,6 +270,13 @@ func New() *cli.App {
 
 				// 	return nil
 				// },
+				After: func(c *cli.Context) error {
+					err := conf.Save()
+					if err != nil {
+						log.G.Error(err)
+					}
+					return nil
+				},
 			},
 		},
 	}
