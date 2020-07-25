@@ -2,6 +2,8 @@ package helper
 
 import (
 	"time"
+
+	"github.com/WOo0W/bowerbird/cli/log"
 )
 
 func DefaultBackoff(min, max time.Duration, tries int) time.Duration {
@@ -24,6 +26,7 @@ func (r *Retryer) Retry(f func() error, end func(error) bool) {
 		if end(err) {
 			return
 		}
+		log.G.Error(err, ". Retrying.")
 		time.Sleep(DefaultBackoff(r.WaitMin, r.WaitMax, tries))
 	}
 }

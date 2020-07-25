@@ -208,16 +208,14 @@ func downloadIllusts(il *pixiv.RespIllusts, l uint, dl *downloader.Downloader, a
 		if il.NextURL == "" {
 			return
 		}
-		il, er = il.NextIllusts()
-		if er != nil {
-			re.Retry(func() error {
-				log.G.Error(er, "Retrying.")
-				il, er = il.NextIllusts()
-				return er
-			}, func(e error) bool {
-				return e == nil
-			})
-		}
+
+		re.Retry(func() error {
+			il, er = il.NextIllusts()
+			return er
+		}, func(e error) bool {
+			return e == nil
+		})
+
 	}
 
 }
