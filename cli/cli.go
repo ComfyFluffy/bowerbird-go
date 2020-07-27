@@ -178,6 +178,59 @@ func New() *cli.App {
 							return nil
 						},
 					},
+					{
+						Name: "user-uploads",
+						Flags: []cli.Flag{
+							&cli.IntFlag{
+								Name:    "user",
+								Aliases: []string{"u"},
+								Usage:   "specify the id of a user",
+							},
+						},
+						Action: func(c *cli.Context) error {
+							uid := papi.UserID
+							id := c.Int("user")
+							if id != 0 {
+								uid = id
+							}
+
+							var uail *pixiv.RespIllusts
+							var err error
+							re := &helper.Retryer{WaitMax: 10 * time.Second, WaitMin: 2 * time.Second, TriesMax: 3}
+							re.Retry(func() error {
+								uail, err = papi.User.Illusts(uid, nil)
+								return err
+							}, func(e error) bool {
+								return e == nil
+							})
+							if err != nil {
+								return err
+							}
+							trd := &http.Transport{}
+							hcd := &http.Client{Transport: trd}
+							if conf.Pixiv.DownloaderProxy != "" {
+								setProxy(tr, conf.Pixiv.APIProxy)
+							} else if conf.Network.GlobalProxy != "" {
+								setProxy(tr, conf.Network.GlobalProxy)
+							}
+							dl := downloader.NewWithCliet(hcd)
+							dl.Client.Transport = log.NewLoggingRoundTripper(log.G, dl.Client.Transport)
+							dl.Start(5)
+							downloadIllusts(uail, limit, dl, papi, conf.Storage.ParsedPixiv())
+							go func() {
+								ticker := time.NewTicker(1 * time.Second)
+								defer ticker.Stop()
+								for {
+									select {
+									case <-ticker.C:
+										fmt.Printf("Speed: %s/s\n", humanize.Bytes(uint64(dl.BytesLastSec)))
+									}
+								}
+							}()
+							dl.Wait()
+							return nil
+						},
+					},
 				},
 				Action: func(c *cli.Context) error {
 					s := c.StringSlice("tags")

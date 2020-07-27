@@ -29,4 +29,5 @@ func (r *Retryer) Retry(f func() error, end func(error) bool) {
 		log.G.Error(err, ". Retrying.")
 		time.Sleep(DefaultBackoff(r.WaitMin, r.WaitMax, tries))
 	}
+
 }
