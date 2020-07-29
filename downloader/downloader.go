@@ -226,7 +226,22 @@ func NewWithCliet(c *http.Client) *Downloader {
 		Tasks:        []*Task{},
 	}
 }
-
+func NewWithDefaultClient() *Downloader {
+	return &Downloader{
+		TriesMax:     defaultRetryMax,
+		RetryWaitMax: defaultRetryWaitMax,
+		RetryWaitMin: defaultRetryWaitMin,
+		Backoff:      helper.DefaultBackoff,
+		Client:       &http.Client{Transport: &http.Transport{}},
+		Logger:       log.G,
+		in:           make(chan *Task, 8192),
+		out:          make(chan *Task),
+		bytesChan:    make(chan int64),
+		stopAll:      make(chan struct{}),
+		Done:         make(chan int),
+		Tasks:        []*Task{},
+	}
+}
 func (d *Downloader) Download(t *Task) {
 	if !t.Overwrite {
 		if _, err := os.Stat(t.LocalPath); !os.IsNotExist(err) {

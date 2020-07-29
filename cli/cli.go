@@ -139,15 +139,10 @@ func New() *cli.App {
 								uid = c.Int("user")
 							}
 
-							trd := &http.Transport{}
-							hcd := &http.Client{Transport: trd}
-							if conf.Pixiv.DownloaderProxy != "" {
-								setProxy(tr, conf.Pixiv.APIProxy)
-							} else if conf.Network.GlobalProxy != "" {
-								setProxy(tr, conf.Network.GlobalProxy)
-							}
+							//trd := &http.Transport{}
+							//hcd := &http.Client{Transport: trd}
 
-							dl := downloader.NewWithCliet(hcd)
+							dl := downloader.NewWithDefaultClient()
 							dl.Client.Transport = log.NewLoggingRoundTripper(log.G, dl.Client.Transport)
 							dl.Start(5)
 
@@ -206,14 +201,8 @@ func New() *cli.App {
 							if err != nil {
 								return err
 							}
-							trd := &http.Transport{}
-							hcd := &http.Client{Transport: trd}
-							if conf.Pixiv.DownloaderProxy != "" {
-								setProxy(tr, conf.Pixiv.APIProxy)
-							} else if conf.Network.GlobalProxy != "" {
-								setProxy(tr, conf.Network.GlobalProxy)
-							}
-							dl := downloader.NewWithCliet(hcd)
+
+							dl := downloader.NewWithDefaultClient()
 							dl.Client.Transport = log.NewLoggingRoundTripper(log.G, dl.Client.Transport)
 							dl.Start(5)
 							downloadIllusts(uail, limit, dl, papi, conf.Storage.ParsedPixiv())
