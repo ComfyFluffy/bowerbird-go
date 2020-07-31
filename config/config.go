@@ -4,10 +4,13 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io/ioutil"
 	"os"
 	"path/filepath"
 	"time"
+
+	"github.com/WOo0W/bowerbird/cli/log"
 )
 
 var (
@@ -29,7 +32,6 @@ type Config struct {
 	Storage  StorageConfig
 	Database DatabaseConfig
 	Network  NetworkConfig
-	Schedule ScheduleConfig
 
 	Pixiv PixivConfig
 
@@ -58,12 +60,8 @@ type ServerConfig struct {
 	Port uint16
 }
 type DatabaseConfig struct {
-	MongoURI      string
-	DatabaseName  string
-	Timeout       string
-	TimeoutParsed time.Duration `json:"-"`
-}
-type ScheduleConfig struct {
+	MongoURI     string
+	DatabaseName string
 }
 
 type PixivConfig struct {
@@ -74,7 +72,24 @@ type PixivConfig struct {
 }
 
 type NetworkConfig struct {
-	GlobalProxy string
+	GlobalProxy                string
+	RetryTimesMax              int
+	RetryWaitMax, RetryWaitMin string
+}
+
+func (nc *NetworkConfig) RetryWaitParsed() (max, min time.Duration) {
+	var err error
+	max, err = time.ParseDuration(nc.RetryWaitMax)
+	if err != nil {
+		max = 30 * time.Second
+		log.G.Warn(fmt.Sprintf("Can not parse RetryWaitMax of NetworkConfig: %s, use default: 30s", nc.RetryWaitMax))
+	}
+	min, err = time.ParseDuration(nc.RetryWaitMin)
+	if err != nil {
+		min = 1 * time.Second
+		log.G.Warn(fmt.Sprintf("Can not parse RetryWaitMin of NetworkConfig: %s, use default: 1s", nc.RetryWaitMin))
+	}
+	return max, min
 }
 
 func (c *Config) Load(b []byte) error {
@@ -82,7 +97,6 @@ func (c *Config) Load(b []byte) error {
 	if err != nil {
 		return err
 	}
-	c.Database.TimeoutParsed, err = time.ParseDuration(c.Database.Timeout)
 	if err != nil {
 		return err
 	}
@@ -129,10 +143,16 @@ func New() *Config {
 		},
 		Database: DatabaseConfig{
 			// https://docs.mongodb.com/manual/reference/connection-string/
-			MongoURI:      "mongodb://localhost",
-			DatabaseName:  "bowerbird",
-			Timeout:       "15s",
-			TimeoutParsed: 15 * time.Second,
+			MongoURI:     "mongodb://localhost",
+			DatabaseName: "bowerbird",
+		},
+		Network: NetworkConfig{
+			RetryWaitMax:  "30s",
+			RetryWaitMin:  "1s",
+			RetryTimesMax: 5,
+		},
+		Pixiv: PixivConfig{
+			Language: "en",
 		},
 	}
 }

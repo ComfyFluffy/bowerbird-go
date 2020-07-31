@@ -47,7 +47,7 @@ func filenameFromPath(path string, windowsSafe bool) string {
 }
 
 //Backoff returns the wait time of a function
-type Backoff func(min, max time.Duration, tries int) time.Duration
+type Backoff func(min, max time.Duration, attemptNum int, resp *http.Response) time.Duration
 
 //Task stores information of a download task
 type Task struct {
@@ -118,18 +118,20 @@ type Downloader struct {
 
 	Logger *log.Logger
 
-	in, out chan *Task
+	in, pre chan *Task
 
 	Tasks []*Task
 	Done  chan int
 
-	wg sync.WaitGroup
+	wg   sync.WaitGroup
+	once sync.Once
 
 	Client       *http.Client
 	TriesMax     int
 	RetryWaitMin time.Duration
 	RetryWaitMax time.Duration
 	Backoff      Backoff
+	MaxWorkers   int
 }
 
 func (d *Downloader) worker() {
@@ -145,33 +147,34 @@ func (d *Downloader) worker() {
 	}
 }
 
-func (d *Downloader) Start(workers int) {
-	d.Logger.Debug(fmt.Sprintf("Starting downloader with %d workers", workers))
-	if d.runningWorkers > 0 {
-		return
-	}
-	d.globleBytesTicker = time.NewTicker(1 * time.Second)
+func (d *Downloader) Start() {
+	d.once.Do(func() {
+		d.Logger.Debug(fmt.Sprintf("Starting downloader"))
 
-	go func() {
-		for {
-			select {
-			case b := <-d.bytesChan:
-				d.bytesNow += b
-			case <-d.globleBytesTicker.C:
-				d.BytesLastSec = d.bytesNow
-				d.bytesNow = 0
-			case <-d.stopAll:
-				d.bytesNow = 0
-				d.BytesLastSec = 0
-				return
-				// case <-d.out:
+		d.globleBytesTicker = time.NewTicker(1 * time.Second)
+
+		go func() {
+			for {
+				select {
+				case b := <-d.bytesChan:
+					d.bytesNow += b
+				case <-d.globleBytesTicker.C:
+					d.BytesLastSec = d.bytesNow
+					d.bytesNow = 0
+				case t := <-d.pre:
+					if d.runningWorkers < d.MaxWorkers {
+						go d.worker()
+						d.runningWorkers++
+					}
+					d.in <- t
+				case <-d.stopAll:
+					d.bytesNow = 0
+					d.BytesLastSec = 0
+					return
+				}
 			}
-		}
-	}()
-	for i := 0; i < workers; i++ {
-		go d.worker()
-	}
-	d.runningWorkers = workers
+		}()
+	})
 }
 
 func (d *Downloader) Stop() {
@@ -206,7 +209,7 @@ func (d *Downloader) Wait() {
 	d.wg.Wait()
 }
 
-func New() *Downloader {
+func NewWithDefaultClient() *Downloader {
 	return NewWithCliet(&http.Client{Transport: &http.Transport{}})
 }
 
@@ -219,29 +222,15 @@ func NewWithCliet(c *http.Client) *Downloader {
 		Client:       c,
 		Logger:       log.G,
 		in:           make(chan *Task, 8192),
-		out:          make(chan *Task),
+		pre:          make(chan *Task),
 		bytesChan:    make(chan int64),
 		stopAll:      make(chan struct{}),
 		Done:         make(chan int),
 		Tasks:        []*Task{},
+		MaxWorkers:   5,
 	}
 }
-func NewWithDefaultClient() *Downloader {
-	return &Downloader{
-		TriesMax:     defaultRetryMax,
-		RetryWaitMax: defaultRetryWaitMax,
-		RetryWaitMin: defaultRetryWaitMin,
-		Backoff:      helper.DefaultBackoff,
-		Client:       &http.Client{Transport: &http.Transport{}},
-		Logger:       log.G,
-		in:           make(chan *Task, 8192),
-		out:          make(chan *Task),
-		bytesChan:    make(chan int64),
-		stopAll:      make(chan struct{}),
-		Done:         make(chan int),
-		Tasks:        []*Task{},
-	}
-}
+
 func (d *Downloader) Download(t *Task) {
 	if !t.Overwrite {
 		if _, err := os.Stat(t.LocalPath); !os.IsNotExist(err) {
@@ -293,7 +282,7 @@ func (d *Downloader) Download(t *Task) {
 			case <-ctx.Done():
 				d.Logger.Debug("Task canceled by context:", ctx.Err())
 				return
-			case <-time.After(d.Backoff(d.RetryWaitMin, d.RetryWaitMax, tries)):
+			case <-time.After(d.Backoff(d.RetryWaitMin, d.RetryWaitMax, tries, nil)):
 			}
 		}
 

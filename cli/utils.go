@@ -14,11 +14,12 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/WOo0W/bowerbird/cli/color"
 	"github.com/WOo0W/bowerbird/cli/log"
 	"github.com/WOo0W/bowerbird/config"
 	"github.com/WOo0W/bowerbird/downloader"
-	"github.com/WOo0W/bowerbird/helper"
 	"github.com/WOo0W/go-pixiv/pixiv"
+	"github.com/dustin/go-humanize"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 	"go.mongodb.org/mongo-driver/mongo/readpref"
@@ -157,10 +158,10 @@ func pximgSingleFileWithDate(basePath string, userID int, u *url.URL) string {
 }
 
 //HasEveryTag checks if every tag is in the input tags
-func HasEveryTag(t []pixiv.Tag, src ...string) bool {
-	for _, q := range src {
+func HasEveryTag(src []pixiv.Tag, check ...string) bool {
+	for _, q := range check {
 		y := false
-		for _, p := range t {
+		for _, p := range src {
 			if q == p.TranslatedName {
 				y = true
 				break
@@ -173,11 +174,11 @@ func HasEveryTag(t []pixiv.Tag, src ...string) bool {
 	return true
 }
 
-//HasAnyTag checks if any tag matches the input tags
-func HasAnyTag(t []pixiv.Tag, src ...string) bool {
-	for _, p := range t {
-		for _, q := range src {
-			if q == p.TranslatedName {
+//hasAnyTag checks if any tag in check matches the tags in src
+func hasAnyTag(src []pixiv.Tag, check ...string) bool {
+	for _, p := range src {
+		for _, q := range check {
+			if q == p.TranslatedName || q == p.Name {
 				return true
 			}
 		}
@@ -185,76 +186,77 @@ func HasAnyTag(t []pixiv.Tag, src ...string) bool {
 	return false
 }
 
-//HasnotAnyTag checks if no tag matches the input tags
-func HasnotAnyTag(t []pixiv.Tag, src ...string) bool {
-	return !HasAnyTag(t, src...)
-}
-
-//HasnotTagCombination checks if every tag is not in the input tags
-func HasnotTagCombination(t []pixiv.Tag, src ...string) bool {
-	return !HasEveryTag(t, src...)
-}
-
 //downloadIllusts takes illust arrays, a downloader object, the pixiv api, illust limits and download path to download illusts
 //If limit is 0, it means no limit
-func downloadIllusts(il *pixiv.RespIllusts, l uint, dl *downloader.Downloader, api *pixiv.AppAPI, basePath string) {
-	time.Sleep(100 * time.Millisecond)
-
-	var c uint = 0
-	re := &helper.Retryer{WaitMax: 10 * time.Second, WaitMin: 2 * time.Second, TriesMax: 3}
+func downloadIllusts(ri *pixiv.RespIllusts, limit int, dl *downloader.Downloader, api *pixiv.AppAPI, basePath string, tags []string) {
+	c := 0
 	for {
-		for _, i := range il.Illusts {
-			if c < l || l == 0 {
-				if i.MetaSinglePage.OriginalImageURL != "" {
-					req, err := http.NewRequest("GET", i.MetaSinglePage.OriginalImageURL, nil)
+		for _, il := range ri.Illusts {
+			if (c < limit || limit == 0) &&
+				(len(tags) == 0 || hasAnyTag(il.Tags, tags...)) {
+
+				if il.MetaSinglePage.OriginalImageURL != "" {
+					req, err := api.NewPximgRequest("GET", il.MetaSinglePage.OriginalImageURL, nil)
 					if err != nil {
 						log.G.Error(err)
 						continue
 					}
-					api.SetHeaders(req)
-					req.Header["Referer"] = []string{"https://app-api.pixiv.net/"}
 
 					dl.Add(&downloader.Task{
-						Request:   req,
-						LocalPath: pximgSingleFileWithDate(basePath, i.User.ID, req.URL)})
+						Request: req,
+						// string like `C:\test\12345\67891_p0_20200202123456.jpg`
+						LocalPath: pximgSingleFileWithDate(basePath, il.User.ID, req.URL)})
 
 				} else {
-					for _, iu := range i.MetaPages {
-						req, err := http.NewRequest("GET", iu.ImageURLs.Original, nil)
+					for _, iu := range il.MetaPages {
+						req, err := api.NewPximgRequest("GET", iu.ImageURLs.Original, nil)
 						if err != nil {
 							log.G.Error(err)
 							continue
 						}
-						api.SetHeaders(req)
-						req.Header["Referer"] = []string{"https://app-api.pixiv.net/"}
 
 						dl.Add(
 							&downloader.Task{
 								Request: req,
+								// string like `C:\test\12345\67890_2020134554\67890_p0.jpg`
 								LocalPath: filepath.Join(
-									basePath, strconv.Itoa(i.User.ID),
-									strconv.Itoa(i.ID)+"_"+
+									basePath, strconv.Itoa(il.User.ID),
+									strconv.Itoa(il.ID)+"_"+
 										strings.ReplaceAll(pximgDate.FindString(req.URL.Path), "/", ""),
 									filepath.Base(req.URL.Path))},
 						)
 					}
 				}
 				c++
-				log.G.Debug(c, " items has checked.")
+				log.G.Debug(c, "items processed")
 			}
 		}
-		var er error
-		if il.NextURL == "" {
+		if ri.NextURL == "" {
+			log.G.Info("done:", c, "items processed")
 			return
 		}
 
-		re.Retry(func() error {
-			il, er = il.NextIllusts()
-			return er
-		}, func(e error) bool {
-			return e == nil
-		})
-
+		var err error
+		ri, err = ri.NextIllusts()
+		if err != nil {
+			log.G.Error(err)
+			return
+		}
 	}
 
+}
+
+func downloaderUILoop(dl *downloader.Downloader) {
+	ticker := time.NewTicker(1 * time.Second)
+	defer ticker.Stop()
+
+	go func() {
+		for {
+			select {
+			case <-ticker.C:
+				fmt.Printf("[%s/s]\r", color.SHiGreen(humanize.Bytes(uint64(dl.BytesLastSec))))
+			}
+		}
+	}()
+	dl.Wait()
 }

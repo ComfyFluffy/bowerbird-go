@@ -3,14 +3,11 @@ package cli
 import (
 	"fmt"
 	"net/http"
-	"os"
-	"time"
 
-	"github.com/WOo0W/bowerbird/cli/color"
 	"github.com/WOo0W/bowerbird/downloader"
 	"github.com/WOo0W/bowerbird/helper"
 	"github.com/WOo0W/go-pixiv/pixiv"
-	"github.com/dustin/go-humanize"
+	"github.com/hashicorp/go-retryablehttp"
 
 	"github.com/WOo0W/bowerbird/cli/log"
 
@@ -23,14 +20,15 @@ func New() *cli.App {
 	conf := config.New()
 	configFile := ""
 	noDB := false
-	var limit uint
-	log.G.ConsoleLevel = log.DEBUG
-	var papi *pixiv.AppAPI
+	limit := 0
+
+	var pixivapi *pixiv.AppAPI
+	var pixivrhc *retryablehttp.Client
+	var pixivdl *downloader.Downloader
 
 	return &cli.App{
-		Writer:    color.Stdout,
-		ErrWriter: color.Stderr,
-		Name:      "Bowerbird",
+		Name:  "Bowerbird",
+		Usage: "A toolset to manage your collection",
 		Flags: []cli.Flag{
 			&cli.StringFlag{
 				Name:        "config",
@@ -43,74 +41,85 @@ func New() *cli.App {
 				Usage:       "Do not connect to the database",
 				Destination: &noDB,
 			},
+			&cli.IntFlag{
+				Name:        "limit",
+				Aliases:     []string{"l"},
+				Usage:       "Limit how many items to download",
+				Destination: &limit,
+			},
+			&cli.IntFlag{
+				Name:        "offset",
+				Usage:       "Start downloading with first offset items jumpped",
+				Destination: &limit,
+			},
 		},
-		// Load and save config file
 		Before: func(c *cli.Context) error {
-			cfile := c.String("config")
-			if cfile != "" {
-				configFile = cfile
-			}
 			err := loadConfigFile(conf, configFile)
 			if err != nil {
-				log.G.Error("Error loading config:", err)
-				os.Exit(1)
+				log.G.Error("loading config:", err)
+				return cli.Exit("", 1)
 			}
+			log.G.ConsoleLevel = log.SwitchLevel(conf.Log.ConsoleLevel)
+			log.G.FileLevel = log.SwitchLevel(conf.Log.FileLevel)
 			return nil
 		},
 		Commands: []*cli.Command{
 			{
 				Name:  "pixiv",
-				Usage: "Get images and infomation from pixiv.net",
+				Usage: "Get works from pixiv.net",
 				Flags: []cli.Flag{
 					&cli.StringSliceFlag{
-						Name:  "tags",
-						Usage: "get images with the given tags",
+						Name:    "tags",
+						Aliases: []string{"t"},
+						Usage:   "Get items with given tags",
 					},
-					&cli.BoolFlag{
-						Name:    "notoken",
-						Aliases: []string{"st"},
-						Usage:   "Don't save the refresh token after logging in",
-					},
-					&cli.UintFlag{
-						Name:    "limit",
-						Aliases: []string{"l"},
-						Usage:   "Limit how many images to download",
+					&cli.IntFlag{
+						Name:    "user",
+						Aliases: []string{"u"},
+						Usage:   "Specify the pixiv user id for the operations. 0 means the logged user.",
 					},
 				},
 				Before: func(c *cli.Context) error {
-					limit = c.Uint("limit")
-					tr := &http.Transport{}
-					hc := &http.Client{Transport: log.NewLoggingRoundTripper(log.G, tr)}
+					pixivrhc = retryablehttp.NewClient()
+					pixivrhc.Backoff = helper.DefaultBackoff
+					pixivrhc.RequestLogHook = func(l retryablehttp.Logger, req *http.Request, tries int) {
+						log.G.Debug(fmt.Sprintf("pixiv http: %s %s tries: %d", req.Method, req.URL, tries))
+					}
+					tr := pixivrhc.HTTPClient.Transport.(*http.Transport)
 					if conf.Pixiv.APIProxy != "" {
 						setProxy(tr, conf.Pixiv.APIProxy)
 					} else if conf.Network.GlobalProxy != "" {
 						setProxy(tr, conf.Network.GlobalProxy)
 					}
+					pixivapi = pixiv.NewWithClient(pixivrhc.StandardClient())
+					pixivapi.SetLanguage(conf.Pixiv.Language)
 
-					papi = pixiv.NewWithClient(hc)
-					papi.SetLanguage("zh-cn")
+					trd := &http.Transport{}
+					if conf.Pixiv.APIProxy != "" {
+						setProxy(trd, conf.Pixiv.DownloaderProxy)
+					} else if conf.Network.GlobalProxy != "" {
+						setProxy(trd, conf.Network.GlobalProxy)
+					}
+					pixivdl = downloader.NewWithCliet(&http.Client{Transport: trd})
 
-					err := authPixiv(papi, conf)
+					err := authPixiv(pixivapi, conf)
 					if err != nil {
-						log.G.Error("pixiv auth failed:", err)
-						os.Exit(1508)
+						log.G.Error("pixiv: auth failed:", err)
+						return cli.Exit("", 1)
 					}
-					log.G.Info(fmt.Sprintf("pixiv: Logged as %s (%d)", papi.AuthResponse.Response.User.Name, papi.UserID))
-					if !c.Bool("notoken") {
-						conf.Pixiv.RefreshToken = papi.RefreshToken
+					log.G.Info(fmt.Sprintf("pixiv: logged as %s (%d)", pixivapi.AuthResponse.Response.User.Name, pixivapi.UserID))
+					conf.Pixiv.RefreshToken = pixivapi.RefreshToken
+					err = conf.Save()
+					if err != nil {
+						log.G.Error("saving config:", err)
 					}
-					conf.Save()
 					return nil
 				},
 				Subcommands: []*cli.Command{
 					{
-						Name: "bookmark",
+						Name:  "bookmark",
+						Usage: "Get user's bookmarked works",
 						Flags: []cli.Flag{
-							&cli.IntFlag{
-								Name:    "user",
-								Aliases: []string{"u"},
-								Usage:   "Specify the pixiv user id",
-							},
 							&cli.BoolFlag{
 								Name:  "private",
 								Usage: "Download the private bookmarks only",
@@ -118,211 +127,53 @@ func New() *cli.App {
 						},
 
 						Action: func(c *cli.Context) error {
-							log.G.Info("bookmark")
-
-							// ctx := context.Background()
-							// var client *mongo.Client
-							// if !noDB {
-							// 	var err error
-							// 	client, err = connectToDB(ctx, conf.Database.MongoURI)
-							// 	if err != nil {
-							// 		return nil
-							// 	}
-							// }
-
-							restrict := pixiv.RPublic
+							var restrict pixiv.Restrict
 							if c.Bool("private") {
 								restrict = pixiv.RPrivate
+							} else {
+								restrict = pixiv.RPublic
 							}
-							uid := papi.UserID
+
+							var uid int
 							if c.IsSet("user") {
 								uid = c.Int("user")
+							} else {
+								uid = pixivapi.UserID
 							}
 
-							dl := downloader.NewWithDefaultClient()
-							dl.Client.Transport = log.NewLoggingRoundTripper(log.G, dl.Client.Transport)
-							dl.Start(5)
-
-							re := &helper.Retryer{WaitMax: 10 * time.Second, WaitMin: 2 * time.Second, TriesMax: 3}
-							r, err := papi.User.BookmarkedIllusts(uid, restrict, nil)
+							r, err := pixivapi.User.BookmarkedIllusts(uid, restrict, nil)
 							if err != nil {
-								re.Retry(func() error {
-									log.G.Error(err, "Retrying.")
-									r, err = papi.User.BookmarkedIllusts(uid, restrict, nil)
-									return err
-								}, func(e error) bool {
-									return e == nil
-								})
+								log.G.Error(err)
+								return cli.Exit("", 1)
 							}
-							downloadIllusts(r, limit, dl, papi, conf.Storage.ParsedPixiv())
 
-							go func() {
-								ticker := time.NewTicker(1 * time.Second)
-								defer ticker.Stop()
-								for {
-									select {
-									case <-ticker.C:
-										fmt.Printf("Speed: %s/s\n", humanize.Bytes(uint64(dl.BytesLastSec)))
-									}
-								}
-							}()
-							dl.Wait()
+							pixivdl.Start()
+							downloadIllusts(r, limit, pixivdl, pixivapi, conf.Storage.ParsedPixiv(), c.StringSlice("tags"))
+							downloaderUILoop(pixivdl)
 							return nil
 						},
 					},
 					{
-						Name: "user-uploads",
-						Flags: []cli.Flag{
-							&cli.IntFlag{
-								Name:    "user",
-								Aliases: []string{"u"},
-								Usage:   "specify the id of a user",
-							},
-						},
+						Name:  "uploads",
+						Usage: "Get user's uploaded works",
 						Action: func(c *cli.Context) error {
-							uid := papi.UserID
+							uid := pixivapi.UserID
 							id := c.Int("user")
 							if id != 0 {
 								uid = id
 							}
 
-							var uail *pixiv.RespIllusts
-							var err error
-							re := &helper.Retryer{WaitMax: 10 * time.Second, WaitMin: 2 * time.Second, TriesMax: 3}
-							re.Retry(func() error {
-								uail, err = papi.User.Illusts(uid, nil)
-								return err
-							}, func(e error) bool {
-								return e == nil
-							})
+							ri, err := pixivapi.User.Illusts(uid, nil)
 							if err != nil {
-								return err
+								return cli.Exit("", 1)
 							}
 
-							dl := downloader.NewWithDefaultClient()
-							dl.Client.Transport = log.NewLoggingRoundTripper(log.G, dl.Client.Transport)
-							dl.Start(5)
-							downloadIllusts(uail, limit, dl, papi, conf.Storage.ParsedPixiv())
-							go func() {
-								ticker := time.NewTicker(1 * time.Second)
-								defer ticker.Stop()
-								for {
-									select {
-									case <-ticker.C:
-										fmt.Printf("Speed: %s/s\n", humanize.Bytes(uint64(dl.BytesLastSec)))
-									}
-								}
-							}()
-							dl.Wait()
+							pixivdl.Start()
+							downloadIllusts(ri, limit, pixivdl, pixivapi, conf.Storage.ParsedPixiv(), c.StringSlice("tags"))
+							downloaderUILoop(pixivdl)
 							return nil
 						},
 					},
-				},
-				Action: func(c *cli.Context) error {
-					s := c.StringSlice("tags")
-					for _, t := range s {
-						fmt.Println(t)
-					}
-
-					return nil
-				},
-				// Action: func(c *cli.Context) error {
-				// 	log.G.Info("pixiv")
-				// 	return nil
-				// 	ctx := context.Background()
-				// 	client, err := mogongo.Connect(ctx, options.Client().ApplyURI(conf.Database.MongoURI))
-				// 	if err != nil {
-				// 		log.G.Error(err)
-				// 		return nil
-				// 	}
-				// 	defer client.Disconnect(ctx)
-				// 	err = client.Ping(ctx, readpref.Primary())
-				// 	if err != nil {
-				// 		log.G.Error(err)
-				// 		return nil
-				// 	}
-
-				// 	db := client.Database(conf.Database.DatabaseName)
-				// 	mu := db.Collection(m.CollectionUser)
-
-				// 	// pretty.Log(mu.InsertOne(ctx, m.User{Source: "test", SourceID: "123"}))
-
-				// 	api := pixiv.New()
-				// 	api.SetRefreshToken("")
-				// 	api.SetProxy("http://127.0.0.1:8888")
-				// 	ra, err := api.ForceAuth()
-				// 	if err != nil {
-				// 		log.G.Error(err)
-				// 		return nil
-				// 	}
-				// 	fmt.Println(ra.Response.RefreshToken)
-
-				// 	id, _ := strconv.Atoi(ra.Response.User.ID)
-				// 	api.User.BookmarkedIllusts(id, "w", nil)
-
-				// 	writeIllusts := func(ri *pixiv.RespIllusts) error {
-				// 		for _, x := range ri.Illusts {
-				// 			uid := strconv.Itoa(x.User.ID)
-				// 			u := m.User{}
-				// 			err := mu.FindOne(ctx,
-				// 				b.D{{"sourceID", uid}, {"source", "pixiv"}},
-				// 			).Decode(&u)
-
-				// 			if err != nil {
-				// 				if err == mongo.ErrNoDocuments {
-				// 					u.Source = "pixiv"
-				// 					u.SourceID = uid
-				// 					u.Extension.Pixiv = &m.PixivUser{
-				// 						IsFollowed: x.User.IsFollowed,
-				// 					}
-				// 					mu.InsertOne(ctx, u)
-				// 				} else {
-				// 					return err
-				// 				}
-				// 			} else {
-				// 				if u.Extension.Pixiv == nil {
-				// 					mu.UpdateOne(ctx,
-				// 						b.D{{"sourceID", uid}, {"source", "pixiv"}},
-				// 						b.D{{"$set", b.D{{"extension",
-				// 							m.ExtUser{Pixiv: &m.PixivUser{IsFollowed: x.User.IsFollowed}}}}}},
-				// 					)
-				// 				}
-				// 				if u.Extension.Pixiv.IsFollowed != x.User.IsFollowed {
-				// 					mu.UpdateOne(ctx,
-				// 						b.D{{"sourceID", uid}, {"source", "pixiv"}},
-				// 						b.D{{"$set", b.D{{"isFollowed", x.User.IsFollowed}}}},
-				// 					)
-				// 				}
-				// 			}
-				// 			pretty.Log(u)
-				// 		}
-				// 		return nil
-				// 	}
-
-				// 	ri, err := api.User.BookmarkedIllusts(id, pixiv.RPublic, nil)
-				// 	if err != nil {
-				// 		log.G.Error(err)
-				// 		return nil
-				// 	}
-				// 	writeIllusts(ri)
-				// 	os.Exit(0)
-
-				// 	for i := 0; i < 3; i++ {
-				// 		ri, err = ri.NextIllusts()
-				// 		if err != nil {
-				// 			log.G.Error(err)
-				// 			return nil
-				// 		}
-				// 	}
-
-				// 	return nil
-				// },
-				After: func(c *cli.Context) error {
-					err := conf.Save()
-					if err != nil {
-						log.G.Error(err)
-					}
-					return nil
 				},
 			},
 		},
