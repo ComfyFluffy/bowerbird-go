@@ -82,6 +82,7 @@ func New() *cli.App {
 				Before: func(c *cli.Context) error {
 					pixivrhc = retryablehttp.NewClient()
 					pixivrhc.Backoff = helper.DefaultBackoff
+					pixivrhc.Logger = nil
 					pixivrhc.RequestLogHook = func(l retryablehttp.Logger, req *http.Request, tries int) {
 						log.G.Debug(fmt.Sprintf("pixiv http: %s %s tries: %d", req.Method, req.URL, tries))
 					}
@@ -95,7 +96,7 @@ func New() *cli.App {
 					pixivapi.SetLanguage(conf.Pixiv.Language)
 
 					trd := &http.Transport{}
-					if conf.Pixiv.APIProxy != "" {
+					if conf.Pixiv.DownloaderProxy != "" {
 						setProxy(trd, conf.Pixiv.DownloaderProxy)
 					} else if conf.Network.GlobalProxy != "" {
 						setProxy(trd, conf.Network.GlobalProxy)

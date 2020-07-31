@@ -201,7 +201,7 @@ func (d *Downloader) Add(task *Task) {
 	d.Tasks = append(d.Tasks, task)
 	d.wg.Add(1)
 	go func() {
-		d.in <- task
+		d.pre <- task
 	}()
 }
 

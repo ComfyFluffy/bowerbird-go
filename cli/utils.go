@@ -192,47 +192,50 @@ func downloadIllusts(ri *pixiv.RespIllusts, limit int, dl *downloader.Downloader
 	c := 0
 	for {
 		for _, il := range ri.Illusts {
-			if (c < limit || limit == 0) &&
-				(len(tags) == 0 || hasAnyTag(il.Tags, tags...)) {
+			if limit != 0 && c >= limit {
+				return
+			}
+			if !(len(tags) == 0 || hasAnyTag(il.Tags, tags...)) {
+				continue
+			}
 
-				if il.MetaSinglePage.OriginalImageURL != "" {
-					req, err := api.NewPximgRequest("GET", il.MetaSinglePage.OriginalImageURL, nil)
+			if il.MetaSinglePage.OriginalImageURL != "" {
+				req, err := api.NewPximgRequest("GET", il.MetaSinglePage.OriginalImageURL, nil)
+				if err != nil {
+					log.G.Error(err)
+					continue
+				}
+
+				dl.Add(&downloader.Task{
+					Request: req,
+					// string like `C:\test\12345\67891_p0_20200202123456.jpg`
+					LocalPath: pximgSingleFileWithDate(basePath, il.User.ID, req.URL)})
+
+			} else {
+				for _, iu := range il.MetaPages {
+					req, err := api.NewPximgRequest("GET", iu.ImageURLs.Original, nil)
 					if err != nil {
 						log.G.Error(err)
 						continue
 					}
 
-					dl.Add(&downloader.Task{
-						Request: req,
-						// string like `C:\test\12345\67891_p0_20200202123456.jpg`
-						LocalPath: pximgSingleFileWithDate(basePath, il.User.ID, req.URL)})
-
-				} else {
-					for _, iu := range il.MetaPages {
-						req, err := api.NewPximgRequest("GET", iu.ImageURLs.Original, nil)
-						if err != nil {
-							log.G.Error(err)
-							continue
-						}
-
-						dl.Add(
-							&downloader.Task{
-								Request: req,
-								// string like `C:\test\12345\67890_2020134554\67890_p0.jpg`
-								LocalPath: filepath.Join(
-									basePath, strconv.Itoa(il.User.ID),
-									strconv.Itoa(il.ID)+"_"+
-										strings.ReplaceAll(pximgDate.FindString(req.URL.Path), "/", ""),
-									filepath.Base(req.URL.Path))},
-						)
-					}
+					dl.Add(
+						&downloader.Task{
+							Request: req,
+							// string like `C:\test\12345\67890_2020134554\67890_p0.jpg`
+							LocalPath: filepath.Join(
+								basePath, strconv.Itoa(il.User.ID),
+								strconv.Itoa(il.ID)+"_"+
+									strings.ReplaceAll(pximgDate.FindString(req.URL.Path), "/", ""),
+								filepath.Base(req.URL.Path))},
+					)
 				}
-				c++
-				log.G.Debug(c, "items processed")
 			}
+			c++
+			log.G.Debug(c, "items processed")
+
 		}
 		if ri.NextURL == "" {
-			log.G.Info("done:", c, "items processed")
 			return
 		}
 
@@ -254,7 +257,7 @@ func downloaderUILoop(dl *downloader.Downloader) {
 		for {
 			select {
 			case <-ticker.C:
-				fmt.Printf("[%s/s]\r", color.SHiGreen(humanize.Bytes(uint64(dl.BytesLastSec))))
+				fmt.Printf("[%s/s]     \r", color.SHiGreen(humanize.Bytes(uint64(dl.BytesLastSec))))
 			}
 		}
 	}()
