@@ -27,8 +27,6 @@ func New() *cli.App {
 	log.G.ConsoleLevel = log.DEBUG
 	var papi *pixiv.AppAPI
 
-	tr := &http.Transport{}
-	hc := &http.Client{Transport: log.NewLoggingRoundTripper(log.G, tr)}
 	return &cli.App{
 		Writer:    color.Stdout,
 		ErrWriter: color.Stderr,
@@ -81,6 +79,8 @@ func New() *cli.App {
 				},
 				Before: func(c *cli.Context) error {
 					limit = c.Uint("limit")
+					tr := &http.Transport{}
+					hc := &http.Client{Transport: log.NewLoggingRoundTripper(log.G, tr)}
 					if conf.Pixiv.APIProxy != "" {
 						setProxy(tr, conf.Pixiv.APIProxy)
 					} else if conf.Network.GlobalProxy != "" {
@@ -138,9 +138,6 @@ func New() *cli.App {
 							if c.IsSet("user") {
 								uid = c.Int("user")
 							}
-
-							//trd := &http.Transport{}
-							//hcd := &http.Client{Transport: trd}
 
 							dl := downloader.NewWithDefaultClient()
 							dl.Client.Transport = log.NewLoggingRoundTripper(log.G, dl.Client.Transport)

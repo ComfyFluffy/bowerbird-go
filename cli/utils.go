@@ -156,6 +156,45 @@ func pximgSingleFileWithDate(basePath string, userID int, u *url.URL) string {
 	return filepath.Join(basePath, strconv.Itoa(userID), fn[:i]+"_"+strings.ReplaceAll(pximgDate.FindString(u.Path), "/", "")+fn[i:])
 }
 
+//HasEveryTag checks if every tag is in the input tags
+func HasEveryTag(t []pixiv.Tag, src ...string) bool {
+	for _, q := range src {
+		y := false
+		for _, p := range t {
+			if q == p.TranslatedName {
+				y = true
+				break
+			}
+		}
+		if !y {
+			return false
+		}
+	}
+	return true
+}
+
+//HasAnyTag checks if any tag matches the input tags
+func HasAnyTag(t []pixiv.Tag, src ...string) bool {
+	for _, p := range t {
+		for _, q := range src {
+			if q == p.TranslatedName {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+//HasnotAnyTag checks if no tag matches the input tags
+func HasnotAnyTag(t []pixiv.Tag, src ...string) bool {
+	return !HasAnyTag(t, src...)
+}
+
+//HasnotTagCombination checks if every tag is not in the input tags
+func HasnotTagCombination(t []pixiv.Tag, src ...string) bool {
+	return !HasEveryTag(t, src...)
+}
+
 //downloadIllusts takes illust arrays, a downloader object, the pixiv api, illust limits and download path to download illusts
 //If limit is 0, it means no limit
 func downloadIllusts(il *pixiv.RespIllusts, l uint, dl *downloader.Downloader, api *pixiv.AppAPI, basePath string) {
