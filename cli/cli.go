@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 
@@ -8,6 +9,7 @@ import (
 	"github.com/WOo0W/bowerbird/helper"
 	"github.com/WOo0W/go-pixiv/pixiv"
 	"github.com/hashicorp/go-retryablehttp"
+	"go.mongodb.org/mongo-driver/mongo"
 
 	"github.com/WOo0W/bowerbird/cli/log"
 
@@ -20,7 +22,9 @@ func New() *cli.App {
 	conf := config.New()
 	configFile := ""
 	noDB := false
-	limit := 0
+
+	var dbc *mongo.Client
+	var db *mongo.Database
 
 	var pixivapi *pixiv.AppAPI
 	var pixivrhc *retryablehttp.Client
@@ -41,26 +45,28 @@ func New() *cli.App {
 				Usage:       "Do not connect to the database",
 				Destination: &noDB,
 			},
-			&cli.IntFlag{
-				Name:        "limit",
-				Aliases:     []string{"l"},
-				Usage:       "Limit how many items to download",
-				Destination: &limit,
-			},
-			&cli.IntFlag{
-				Name:        "offset",
-				Usage:       "Start downloading with first offset items jumpped",
-				Destination: &limit,
-			},
 		},
 		Before: func(c *cli.Context) error {
 			err := loadConfigFile(conf, configFile)
 			if err != nil {
 				log.G.Error("loading config:", err)
-				return cli.Exit("", 1)
+				return nil
 			}
+
 			log.G.ConsoleLevel = log.SwitchLevel(conf.Log.ConsoleLevel)
 			log.G.FileLevel = log.SwitchLevel(conf.Log.FileLevel)
+
+			if !noDB {
+				ctx := context.Background()
+				var err error
+				dbc, err = connectToDB(ctx, conf.Database.MongoURI)
+				if err != nil {
+					log.G.Error("cannot connect to database:", err)
+					return nil
+				}
+				db = dbc.Database(conf.Database.DatabaseName)
+				ensureIndexes(ctx, db)
+			}
 			return nil
 		},
 		Commands: []*cli.Command{
@@ -71,12 +77,25 @@ func New() *cli.App {
 					&cli.StringSliceFlag{
 						Name:    "tags",
 						Aliases: []string{"t"},
-						Usage:   "Get items with given tags",
+						Usage:   "Get items which have any of given tags",
+					},
+					&cli.BoolFlag{
+						Name:  "tags-match-all",
+						Usage: "Get items which have all of given tags",
 					},
 					&cli.IntFlag{
 						Name:    "user",
 						Aliases: []string{"u"},
-						Usage:   "Specify the pixiv user id for the operations. 0 means the logged user.",
+						Usage:   "Specify the pixiv user id for the operations. Default use the logged user's ID.",
+					},
+					&cli.IntFlag{
+						Name:    "limit",
+						Aliases: []string{"l"},
+						Usage:   "Limit how many items to download",
+					},
+					&cli.IntFlag{
+						Name:  "offset",
+						Usage: "Start downloading with first offset items jumpped",
 					},
 				},
 				Before: func(c *cli.Context) error {
@@ -106,7 +125,7 @@ func New() *cli.App {
 					err := authPixiv(pixivapi, conf)
 					if err != nil {
 						log.G.Error("pixiv: auth failed:", err)
-						return cli.Exit("", 1)
+						return nil
 					}
 					log.G.Info(fmt.Sprintf("pixiv: logged as %s (%d)", pixivapi.AuthResponse.Response.User.Name, pixivapi.UserID))
 					conf.Pixiv.RefreshToken = pixivapi.RefreshToken
@@ -141,15 +160,21 @@ func New() *cli.App {
 							} else {
 								uid = pixivapi.UserID
 							}
-
-							r, err := pixivapi.User.BookmarkedIllusts(uid, restrict, nil)
+							var opt *pixiv.BookmarkQuery
+							offset := c.Int("offset")
+							if offset > 0 {
+								opt = &pixiv.BookmarkQuery{
+									Offset: offset,
+								}
+							}
+							r, err := pixivapi.User.BookmarkedIllusts(uid, restrict, opt)
 							if err != nil {
 								log.G.Error(err)
-								return cli.Exit("", 1)
+								return nil
 							}
 
 							pixivdl.Start()
-							downloadIllusts(r, limit, pixivdl, pixivapi, conf.Storage.ParsedPixiv(), c.StringSlice("tags"))
+							processIllusts(r, c.Int("limit"), pixivdl, pixivapi, conf.Storage.ParsedPixiv(), c.StringSlice("tags"), c.Bool("tags-match-all"), db)
 							downloaderUILoop(pixivdl)
 							return nil
 						},
@@ -158,19 +183,26 @@ func New() *cli.App {
 						Name:  "uploads",
 						Usage: "Get user's uploaded works",
 						Action: func(c *cli.Context) error {
-							uid := pixivapi.UserID
-							id := c.Int("user")
-							if id != 0 {
-								uid = id
+							var uid int
+							if c.IsSet("user") {
+								uid = c.Int("user")
+							} else {
+								uid = pixivapi.UserID
 							}
-
-							ri, err := pixivapi.User.Illusts(uid, nil)
+							var opt *pixiv.IllustQuery
+							offset := c.Int("offset")
+							if offset > 0 {
+								opt = &pixiv.IllustQuery{
+									Offset: offset,
+								}
+							}
+							ri, err := pixivapi.User.Illusts(uid, opt)
 							if err != nil {
-								return cli.Exit("", 1)
+								return nil
 							}
 
 							pixivdl.Start()
-							downloadIllusts(ri, limit, pixivdl, pixivapi, conf.Storage.ParsedPixiv(), c.StringSlice("tags"))
+							processIllusts(ri, c.Int("limit"), pixivdl, pixivapi, conf.Storage.ParsedPixiv(), c.StringSlice("tags"), c.Bool("tags-match-all"), db)
 							downloaderUILoop(pixivdl)
 							return nil
 						},

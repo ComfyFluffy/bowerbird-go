@@ -147,7 +147,7 @@ func New() *Config {
 			DatabaseName: "bowerbird",
 		},
 		Network: NetworkConfig{
-			RetryWaitMax:  "30s",
+			RetryWaitMax:  "10s",
 			RetryWaitMin:  "1s",
 			RetryTimesMax: 5,
 		},

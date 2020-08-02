@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"context"
 	"fmt"
 	"io/ioutil"
 	"net/http"
@@ -21,8 +20,6 @@ import (
 	"github.com/WOo0W/go-pixiv/pixiv"
 	"github.com/dustin/go-humanize"
 	"go.mongodb.org/mongo-driver/mongo"
-	"go.mongodb.org/mongo-driver/mongo/options"
-	"go.mongodb.org/mongo-driver/mongo/readpref"
 	"golang.org/x/crypto/ssh/terminal"
 	"golang.org/x/net/proxy"
 )
@@ -98,21 +95,6 @@ func loadConfigFile(conf *config.Config, path string) error {
 	return nil
 }
 
-func connectToDB(ctx context.Context, uri string) (*mongo.Client, error) {
-	client, err := mongo.Connect(ctx, options.Client().ApplyURI(uri))
-	if err != nil {
-		log.G.Error("cannot connect to database:", err)
-		return client, err
-	}
-	defer client.Disconnect(ctx)
-	err = client.Ping(ctx, readpref.Primary())
-	if err != nil {
-		log.G.Error("cannot connect to database:", err)
-		return client, err
-	}
-	return client, nil
-}
-
 func getUserPass() (username, password string) {
 	fmt.Print("Username / Email: ")
 	fmt.Scanln(&username)
@@ -157,17 +139,17 @@ func pximgSingleFileWithDate(basePath string, userID int, u *url.URL) string {
 	return filepath.Join(basePath, strconv.Itoa(userID), fn[:i]+"_"+strings.ReplaceAll(pximgDate.FindString(u.Path), "/", "")+fn[i:])
 }
 
-//HasEveryTag checks if every tag is in the input tags
-func HasEveryTag(src []pixiv.Tag, check ...string) bool {
-	for _, q := range check {
-		y := false
-		for _, p := range src {
-			if q == p.TranslatedName {
-				y = true
+//hasEveryTag checks if every tag is in the input tags
+func hasEveryTag(src []pixiv.Tag, check ...string) bool {
+	for _, i := range check {
+		has := false
+		for _, j := range src {
+			if i == j.Name || i == j.TranslatedName {
+				has = true
 				break
 			}
 		}
-		if !y {
+		if !has {
 			return false
 		}
 	}
@@ -176,9 +158,9 @@ func HasEveryTag(src []pixiv.Tag, check ...string) bool {
 
 //hasAnyTag checks if any tag in check matches the tags in src
 func hasAnyTag(src []pixiv.Tag, check ...string) bool {
-	for _, p := range src {
-		for _, q := range check {
-			if q == p.TranslatedName || q == p.Name {
+	for _, i := range src {
+		for _, j := range check {
+			if j == i.Name || j == i.TranslatedName {
 				return true
 			}
 		}
@@ -186,17 +168,31 @@ func hasAnyTag(src []pixiv.Tag, check ...string) bool {
 	return false
 }
 
-//downloadIllusts takes illust arrays, a downloader object, the pixiv api, illust limits and download path to download illusts
-//If limit is 0, it means no limit
-func downloadIllusts(ri *pixiv.RespIllusts, limit int, dl *downloader.Downloader, api *pixiv.AppAPI, basePath string, tags []string) {
-	c := 0
+func processIllusts(ri *pixiv.RespIllusts, limit int, dl *downloader.Downloader, api *pixiv.AppAPI, basePath string, tags []string, tagsMatchAll bool, db *mongo.Database) {
+	i := 0
 	for {
-		for _, il := range ri.Illusts {
-			if limit != 0 && c >= limit {
+		if db != nil {
+			err := saveIllustToDB(ri.Illusts, db)
+			if err != nil {
+				log.G.Error(err)
 				return
 			}
-			if !(len(tags) == 0 || hasAnyTag(il.Tags, tags...)) {
+		}
+		for _, il := range ri.Illusts {
+			if limit != 0 && i >= limit {
 				continue
+			}
+
+			if len(tags) != 0 {
+				if tagsMatchAll {
+					if !hasEveryTag(il.Tags, tags...) {
+						continue
+					}
+				} else {
+					if !hasAnyTag(il.Tags, tags...) {
+						continue
+					}
+				}
 			}
 
 			if il.MetaSinglePage.OriginalImageURL != "" {
@@ -231,10 +227,10 @@ func downloadIllusts(ri *pixiv.RespIllusts, limit int, dl *downloader.Downloader
 					)
 				}
 			}
-			c++
-			log.G.Debug(c, "items processed")
-
+			i++
 		}
+		log.G.Info(i, "items processed")
+
 		if ri.NextURL == "" {
 			return
 		}

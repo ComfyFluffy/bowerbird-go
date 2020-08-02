@@ -12,7 +12,9 @@ type User struct {
 	Rating    int                `bson:"rating,omitempty" json:"rating,omitempty"`
 	Source    string             `bson:"source,omitempty" json:"source"`
 	SourceID  string             `bson:"sourceID,omitempty" json:"sourceID"`
-	Extension ExtUser            `bson:"extension,omitempty" json:"extension,omitempty"`
+	Extension *ExtUser           `bson:"extension,omitempty" json:"extension,omitempty"`
+
+	LastModified time.Time `bson:"lastModified,omitempty" json:"lastModified,omitempty"`
 
 	AvatarID primitive.ObjectID   `bson:"avatar,omitempty" json:"-"`
 	TagIDs   []primitive.ObjectID `bson:"tagIDs,omitempty" json:"-"`
@@ -43,7 +45,7 @@ type UserDetail struct {
 }
 
 // DBCollection returns the name of mongodb collection
-const CollectionUserDetail = "user_profile"
+const CollectionUserDetail = "user_details"
 
 type ExtUserDetail struct {
 	Pixiv *PixivUserProfile `bson:"pixiv,omitempty" json:"pixiv,omitempty"`
@@ -51,13 +53,14 @@ type ExtUserDetail struct {
 
 // Post defines user created content
 type Post struct {
-	ID            primitive.ObjectID `bson:"_id,omitempty" json:"id,string"`
-	Rating        int                `bson:"rating,omitempty" json:"rating,omitempty"`
-	Source        string             `bson:"source,omitempty" json:"source,omitempty"`
-	SourceID      string             `bson:"sourceID,omitempty" json:"sourceID,omitempty"`
-	SourceDeleted bool               `bson:"sourceDeleted" json:"sourceDeleted"`
-	SourcePrivate bool               `bson:"sourcePrivate" json:"sourcePrivate"`
-	Extension     *ExtPost           `bson:"extension,omitempty" json:"extension"`
+	ID              primitive.ObjectID `bson:"_id,omitempty" json:"id,string"`
+	Rating          int                `bson:"rating,omitempty" json:"rating,omitempty"`
+	Source          string             `bson:"source,omitempty" json:"source,omitempty"`
+	SourceID        string             `bson:"sourceID,omitempty" json:"sourceID,omitempty"`
+	SourceInvisible bool               `bson:"sourceInvisible" json:"sourceInvisible"`
+	Extension       *ExtPost           `bson:"extension,omitempty" json:"extension"`
+
+	LastModified time.Time `bson:"lastModified,omitempty" json:"lastModified,omitempty"`
 
 	OwnerID primitive.ObjectID   `bson:"ownerID,omitempty" json:"-"`
 	TagIDs  []primitive.ObjectID `bson:"tagIDs,omitempty" json:"-"`
@@ -109,17 +112,18 @@ type ExtCollection struct{}
 
 // Tag defines the tag of the User, Post and Collection
 type Tag struct {
-	ID    primitive.ObjectID `bson:"_id,omitempty" json:"id,string"`
-	Alias []TagAlias         `bson:"alias,omitempty" json:"alias,omitempty"`
+	ID     primitive.ObjectID `bson:"_id,omitempty" json:"id,string"`
+	Alias  []string           `bson:"alias,omitempty" json:"alias,omitempty"`
+	Source string             `bson:"source,omitempty" json:"source,omitempty"`
 }
 
 const CollectionTag = "tags"
 
-type TagAlias struct {
-	Text     string `bson:"text,omitempty" json:"text,omitempty"`
-	Language string `bson:"language,omitempty" json:"language,omitempty"`
-	Source   string `bson:"source,omitempty" json:"source,omitempty"`
-}
+// type TagAlias struct {
+// 	Text     string `bson:"text,omitempty" json:"text,omitempty"`
+// 	Language string `bson:"language,omitempty" json:"language,omitempty"`
+// 	Source   string `bson:"source,omitempty" json:"source,omitempty"`
+// }
 
 // Media defines the assets of Post
 type Media struct {

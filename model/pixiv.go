@@ -47,21 +47,21 @@ type PixivMedia struct {
 	UgoiraDelay []int `bson:"ugoiraDelay,omitempty" json:"ugoiraDelay,omitempty"`
 }
 
-func convUser(u *pixiv.User) *User {
+func convPixivUser(u *pixiv.User) *User {
 	return &User{
 		Source:   "pixiv",
 		SourceID: strconv.Itoa(u.ID),
-		Extension: ExtUser{Pixiv: &PixivUser{
+		Extension: &ExtUser{Pixiv: &PixivUser{
 			IsFollowed: u.IsFollowed,
 		}},
 	}
 }
 
-func convUserProfile(u *pixiv.User, p *pixiv.Profile) (*User, *UserDetail) {
+func convPixivUserProfile(u *pixiv.User, p *pixiv.Profile) (*User, *UserDetail) {
 	return &User{
 			Source:   "pixiv",
 			SourceID: strconv.Itoa(u.ID),
-			Extension: ExtUser{Pixiv: &PixivUser{
+			Extension: &ExtUser{Pixiv: &PixivUser{
 				IsFollowed:           u.IsFollowed,
 				TotalFollowing:       p.TotalFollowUsers,
 				TotalIllustSeries:    p.TotalIllustSeries,

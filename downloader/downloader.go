@@ -170,6 +170,7 @@ func (d *Downloader) Start() {
 				case <-d.stopAll:
 					d.bytesNow = 0
 					d.BytesLastSec = 0
+					d.once = sync.Once{}
 					return
 				}
 			}
@@ -300,7 +301,7 @@ func (d *Downloader) Download(t *Task) {
 				err = fmt.Errorf("http code %d with message: %s", resp.StatusCode, r)
 			}
 
-			onErr("http code is not 2xx", err)
+			onErr("http code not ok", err)
 			return
 		}
 
@@ -309,7 +310,7 @@ func (d *Downloader) Download(t *Task) {
 		resp.Body.Close()
 		if written == resp.ContentLength {
 			t.Status = Finished
-			d.Logger.Info("Task finished, filename:", filepath.Base(t.LocalPath))
+			d.Logger.Info("task finished:", filepath.Base(t.LocalPath))
 			f.Close()
 			err := os.Rename(part, t.LocalPath)
 			if err != nil {
