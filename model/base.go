@@ -1,14 +1,41 @@
 package model
 
 import (
+	"encoding/json"
+	"sort"
 	"time"
 
+	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 )
 
+type DD bson.D
+
+func (a DD) Len() int           { return len(a) }
+func (a DD) Swap(i, j int)      { a[i], a[j] = a[j], a[i] }
+func (a DD) Less(i, j int) bool { return a[i].Key < a[j].Key }
+func (a DD) MarshalJSON() ([]byte, error) {
+	return json.Marshal(bson.D(a).Map())
+}
+
+//TODO: better ways to unmarshal it?
+
+func (a *DD) UnmarshalJSON(b []byte) error {
+	var m bson.M
+	err := json.Unmarshal(b, &m)
+	if err != nil {
+		return err
+	}
+	for k, v := range m {
+		*a = append(*a, bson.E{Key: k, Value: v})
+	}
+	sort.Sort(a)
+	return nil
+}
+
 // User defines the person
 type User struct {
-	ID        primitive.ObjectID `bson:"_id,omitempty" json:"id,string"`
+	ID        primitive.ObjectID `bson:"_id,omitempty" json:"id"`
 	Rating    int                `bson:"rating,omitempty" json:"rating,omitempty"`
 	Source    string             `bson:"source,omitempty" json:"source"`
 	SourceID  string             `bson:"sourceID,omitempty" json:"sourceID"`
@@ -16,11 +43,10 @@ type User struct {
 
 	LastModified time.Time `bson:"lastModified,omitempty" json:"lastModified,omitempty"`
 
-	AvatarID primitive.ObjectID   `bson:"avatar,omitempty" json:"-"`
-	TagIDs   []primitive.ObjectID `bson:"tagIDs,omitempty" json:"-"`
+	Avatars []Media              `bson:"avatars,omitempty" json:"avatars,omitempty"`
+	TagIDs  []primitive.ObjectID `bson:"tagIDs,omitempty" json:"-"`
 
-	Avatar *Media `bson:"-" json:"avatar,omitempty"`
-	Tags   []Tag  `bson:"-" json:"tags"`
+	Tags []Tag `bson:"-" json:"tags"`
 }
 
 const CollectionUser = "users"
@@ -36,12 +62,10 @@ type ExtUser struct {
 
 // UserDetail defines user details
 type UserDetail struct {
-	ID     primitive.ObjectID `bson:"_id,omitempty" json:"id,string"`
-	UserID primitive.ObjectID `bson:"userID,omitempty" json:"-"`
-	Name   string             `bson:"name,omitempty" json:"name,omitempty"`
-	Page   *Page              `bson:"page,omitempty" json:"page"`
-	// Banner   *Media                 `bson:"banner,omitempty" json:"banner,omitempty"`
-	Extension *ExtUserDetail `bson:"extension,omitempty" json:"extension"`
+	ID        primitive.ObjectID `bson:"_id,omitempty" json:"id"`
+	UserID    primitive.ObjectID `bson:"userID,omitempty" json:"-"`
+	Name      string             `bson:"name,omitempty" json:"name,omitempty"`
+	Extension *ExtUserDetail     `bson:"extension,omitempty" json:"extension"`
 }
 
 // DBCollection returns the name of mongodb collection
@@ -53,7 +77,7 @@ type ExtUserDetail struct {
 
 // Post defines user created content
 type Post struct {
-	ID              primitive.ObjectID `bson:"_id,omitempty" json:"id,string"`
+	ID              primitive.ObjectID `bson:"_id,omitempty" json:"id"`
 	Rating          int                `bson:"rating,omitempty" json:"rating,omitempty"`
 	Source          string             `bson:"source,omitempty" json:"source,omitempty"`
 	SourceID        string             `bson:"sourceID,omitempty" json:"sourceID,omitempty"`
@@ -78,10 +102,10 @@ type ExtPost struct {
 
 // PostDetail defines the detail of Post
 type PostDetail struct {
-	ID        primitive.ObjectID `bson:"_id,omitempty" json:"id,string"`
+	ID        primitive.ObjectID `bson:"_id,omitempty" json:"id"`
 	PostID    primitive.ObjectID `bson:"postID,omitempty" json:"-"`
 	Date      time.Time          `bson:"date,omitempty" json:"date,omitempty"`
-	Page      *Page              `bson:"page,omitempty" json:"page"`
+	Media     []Media            `bson:"media,omitempty" json:"media"`
 	Extension *ExtPostDetail     `bson:"extension,omitempty" json:"extension"`
 }
 
@@ -93,17 +117,15 @@ const CollectionPostDetail = "post_details"
 
 // Collection defines the collection of Post
 type Collection struct {
-	ID        primitive.ObjectID `bson:"_id,omitempty" json:"id,string"`
+	ID        primitive.ObjectID `bson:"_id,omitempty" json:"id"`
 	Name      string             `bson:"name,omitempty" json:"name"`
 	Extension *ExtCollection     `bson:"extension,omitempty" json:"extension"`
 
-	TagIDs   []primitive.ObjectID `bson:"tagIDs,omitempty" json:"-"`
-	PostIDs  []primitive.ObjectID `bson:"postIDs,omitempty" json:"-"`
-	MediaIDs []primitive.ObjectID `bson:"mediaIDs,omitempty" json:"-"`
+	TagIDs  []primitive.ObjectID `bson:"tagIDs,omitempty" json:"-"`
+	PostIDs []primitive.ObjectID `bson:"postIDs,omitempty" json:"-"`
 
-	Tags  []Tag   `bson:"-" json:"tags"`
-	Posts []Post  `bson:"-" json:"posts"`
-	Media []Media `bson:"-" json:"media"`
+	Tags  []Tag  `bson:"-" json:"tags"`
+	Posts []Post `bson:"-" json:"posts"`
 }
 
 const CollectionCollection = "collection"
@@ -112,7 +134,7 @@ type ExtCollection struct{}
 
 // Tag defines the tag of the User, Post and Collection
 type Tag struct {
-	ID     primitive.ObjectID `bson:"_id,omitempty" json:"id,string"`
+	ID     primitive.ObjectID `bson:"_id,omitempty" json:"id"`
 	Alias  []string           `bson:"alias,omitempty" json:"alias,omitempty"`
 	Source string             `bson:"source,omitempty" json:"source,omitempty"`
 }
@@ -127,16 +149,13 @@ const CollectionTag = "tags"
 
 // Media defines the assets of Post
 type Media struct {
-	ID        primitive.ObjectID `bson:"_id,omitempty" json:"id,string"`
-	MIME      string             `bson:"mime,omitempty" json:"mime"`
-	Colors    []Color            `bson:"colors,omitempty" json:"colors"`
-	Size      int                `bson:"size,omitempty" json:"size"`
-	URL       string             `bson:"url,omitempty" json:"-"`
-	Path      string             `bson:"path,omitempty" json:"-"`
-	Extension *ExtMedia          `bson:"extension,omitempty" json:"extension"`
+	MIME      string    `bson:"mime,omitempty" json:"mime"`
+	Colors    []Color   `bson:"colors,omitempty" json:"colors"`
+	Size      int       `bson:"size,omitempty" json:"size"`
+	URL       string    `bson:"url,omitempty" json:"-"`
+	Path      string    `bson:"path,omitempty" json:"-"`
+	Extension *ExtMedia `bson:"extension,omitempty" json:"extension"`
 }
-
-const CollectionMedia = "media"
 
 type ExtMedia struct {
 	Pixiv *PixivMedia `bson:"pixiv,omitempty" json:"pixiv,omitempty"`
@@ -145,14 +164,5 @@ type ExtMedia struct {
 // Color defines the color of Media
 type Color struct {
 	R, G, B uint8
+	Rating  int
 }
-
-// Page defines the page of Post and User
-type Page struct {
-	HTML      string               `bson:"html,omitempty" json:"html"`
-	MediaIDs  []primitive.ObjectID `bson:"mediaIDs,omitempty" json:"-"`
-	Media     []Media              `bson:"-" json:"media"`
-	Extension *ExtPage             `bson:"extension,omitempty" json:"extension"`
-}
-
-type ExtPage struct{}

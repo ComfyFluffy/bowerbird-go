@@ -22,6 +22,7 @@ func New() *cli.App {
 	conf := config.New()
 	configFile := ""
 	noDB := false
+	dbOnly := false
 
 	var dbc *mongo.Client
 	var db *mongo.Database
@@ -44,6 +45,11 @@ func New() *cli.App {
 				Name:        "no-db",
 				Usage:       "Do not connect to the database",
 				Destination: &noDB,
+			},
+			&cli.BoolFlag{
+				Name:        "db-only",
+				Usage:       "Save items to database but not download them",
+				Destination: &dbOnly,
 			},
 		},
 		Before: func(c *cli.Context) error {
@@ -174,7 +180,7 @@ func New() *cli.App {
 							}
 
 							pixivdl.Start()
-							processIllusts(r, c.Int("limit"), pixivdl, pixivapi, conf.Storage.ParsedPixiv(), c.StringSlice("tags"), c.Bool("tags-match-all"), db)
+							processIllusts(r, c.Int("limit"), pixivdl, pixivapi, conf.Storage.ParsedPixiv(), c.StringSlice("tags"), c.Bool("tags-match-all"), db, dbOnly)
 							downloaderUILoop(pixivdl)
 							return nil
 						},
@@ -202,7 +208,7 @@ func New() *cli.App {
 							}
 
 							pixivdl.Start()
-							processIllusts(ri, c.Int("limit"), pixivdl, pixivapi, conf.Storage.ParsedPixiv(), c.StringSlice("tags"), c.Bool("tags-match-all"), db)
+							processIllusts(ri, c.Int("limit"), pixivdl, pixivapi, conf.Storage.ParsedPixiv(), c.StringSlice("tags"), c.Bool("tags-match-all"), db, dbOnly)
 							downloaderUILoop(pixivdl)
 							return nil
 						},

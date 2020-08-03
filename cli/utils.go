@@ -72,7 +72,7 @@ func loadConfigFile(conf *config.Config, path string) error {
 	b, err := ioutil.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			log.G.Info("Creating new config file:", path)
+			log.G.Info("creating new config file:", path)
 			if b, err = conf.Marshal(); err != nil {
 				return err
 			}
@@ -168,71 +168,83 @@ func hasAnyTag(src []pixiv.Tag, check ...string) bool {
 	return false
 }
 
-func processIllusts(ri *pixiv.RespIllusts, limit int, dl *downloader.Downloader, api *pixiv.AppAPI, basePath string, tags []string, tagsMatchAll bool, db *mongo.Database) {
+func processIllusts(ri *pixiv.RespIllusts, limit int, dl *downloader.Downloader, api *pixiv.AppAPI, basePath string, tags []string, tagsMatchAll bool, db *mongo.Database, dbOnly bool) {
 	i := 0
+	idb := 0
+	usersToUpdate := make(map[int]bool, 120)
+
+Loop:
 	for {
 		if db != nil {
-			err := saveIllustToDB(ri.Illusts, db)
+			err := saveIllustToDB(ri.Illusts, db, usersToUpdate)
 			if err != nil {
 				log.G.Error(err)
 				return
 			}
+			idb += len(ri.Illusts)
 		}
-		for _, il := range ri.Illusts {
-			if limit != 0 && i >= limit {
-				continue
-			}
-
-			if len(tags) != 0 {
-				if tagsMatchAll {
-					if !hasEveryTag(il.Tags, tags...) {
-						continue
-					}
-				} else {
-					if !hasAnyTag(il.Tags, tags...) {
-						continue
-					}
-				}
-			}
-
-			if il.MetaSinglePage.OriginalImageURL != "" {
-				req, err := api.NewPximgRequest("GET", il.MetaSinglePage.OriginalImageURL, nil)
-				if err != nil {
-					log.G.Error(err)
-					continue
+		if !dbOnly {
+			for _, il := range ri.Illusts {
+				if limit != 0 && i >= limit {
+					break Loop
 				}
 
-				dl.Add(&downloader.Task{
-					Request: req,
-					// string like `C:\test\12345\67891_p0_20200202123456.jpg`
-					LocalPath: pximgSingleFileWithDate(basePath, il.User.ID, req.URL)})
+				if len(tags) != 0 {
+					if tagsMatchAll {
+						if !hasEveryTag(il.Tags, tags...) {
+							continue
+						}
+					} else {
+						if !hasAnyTag(il.Tags, tags...) {
+							continue
+						}
+					}
+				}
 
-			} else {
-				for _, iu := range il.MetaPages {
-					req, err := api.NewPximgRequest("GET", iu.ImageURLs.Original, nil)
+				if il.MetaSinglePage.OriginalImageURL != "" {
+					req, err := api.NewPximgRequest("GET", il.MetaSinglePage.OriginalImageURL, nil)
 					if err != nil {
 						log.G.Error(err)
 						continue
 					}
 
-					dl.Add(
-						&downloader.Task{
-							Request: req,
-							// string like `C:\test\12345\67890_2020134554\67890_p0.jpg`
-							LocalPath: filepath.Join(
-								basePath, strconv.Itoa(il.User.ID),
-								strconv.Itoa(il.ID)+"_"+
-									strings.ReplaceAll(pximgDate.FindString(req.URL.Path), "/", ""),
-								filepath.Base(req.URL.Path))},
-					)
+					dl.Add(&downloader.Task{
+						Request: req,
+						// string like `C:\test\12345\67891_p0_20200202123456.jpg`
+						LocalPath: pximgSingleFileWithDate(basePath, il.User.ID, req.URL)})
+
+				} else {
+					for _, iu := range il.MetaPages {
+						req, err := api.NewPximgRequest("GET", iu.ImageURLs.Original, nil)
+						if err != nil {
+							log.G.Error(err)
+							continue
+						}
+
+						dl.Add(
+							&downloader.Task{
+								Request: req,
+								// string like `C:\test\12345\67890_2020134554\67890_p0.jpg`
+								LocalPath: filepath.Join(
+									basePath, strconv.Itoa(il.User.ID),
+									strconv.Itoa(il.ID)+"_"+
+										strings.ReplaceAll(pximgDate.FindString(req.URL.Path), "/", ""),
+									filepath.Base(req.URL.Path))},
+						)
+					}
 				}
+				i++
 			}
-			i++
+			log.G.Info(i, "items has been sent to download queue")
+		} else {
+			log.G.Info(idb, "items processed to database")
+			if limit != 0 && idb >= limit {
+				break Loop
+			}
 		}
-		log.G.Info(i, "items processed")
 
 		if ri.NextURL == "" {
-			return
+			break Loop
 		}
 
 		var err error
@@ -242,7 +254,22 @@ func processIllusts(ri *pixiv.RespIllusts, limit int, dl *downloader.Downloader,
 			return
 		}
 	}
+	log.G.Info("all", i, "items processed")
 
+	log.G.Info("updating", len(usersToUpdate), "user profiles...")
+	for id := range usersToUpdate {
+		r, err := api.User.Detail(id, nil)
+		if err != nil {
+			log.G.Error(err)
+			return
+		}
+		err = saveUserProfileToDB(r, db)
+		if err != nil {
+			log.G.Error(err)
+			continue
+		}
+		log.G.Info(fmt.Sprintf("updated user %s (%d)", r.User.Name, r.User.ID))
+	}
 }
 
 func downloaderUILoop(dl *downloader.Downloader) {
