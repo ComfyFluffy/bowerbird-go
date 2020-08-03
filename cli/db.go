@@ -2,7 +2,6 @@ package cli
 
 import (
 	"context"
-	"regexp"
 	"sort"
 	"strconv"
 	"time"
@@ -97,9 +96,9 @@ func ensureIndexes(ctx context.Context, db *mongo.Database) {
 	)
 }
 
-func buildRegexQuery(s string) primitive.Regex {
-	return primitive.Regex{Options: "i", Pattern: "^" + regexp.QuoteMeta(s) + "$"}
-}
+// func buildRegexQuery(s string) primitive.Regex {
+// 	return primitive.Regex{Options: "i", Pattern: "^" + regexp.QuoteMeta(s) + "$"}
+// }
 
 func lookupObjectID(r bson.Raw) primitive.ObjectID {
 	return r.Lookup("_id").ObjectID()
@@ -286,20 +285,15 @@ func saveIllustsToDB(ils []*pixiv.Illust, db *mongo.Database, usersToUpdate map[
 					err error
 				)
 				if len(ts) > 1 {
-					treg := make([]primitive.Regex, len(ts))
-					for i, tt := range ts {
-						// do the match with case ignored
-						treg[i] = buildRegexQuery(tt)
-					}
 					r, err = ct.FindOneAndUpdate(ctx,
-						D{{"source", "pixiv"}, {"alias", D{{"$in", treg}}}},
+						D{{"source", "pixiv"}, {"alias", D{{"$in", ts}}}},
 						D{{"$addToSet", D{
 							{"alias", D{
 								{"$each", ts}}}}}},
 						optsFOAIDOnly).DecodeBytes()
 				} else if len(ts) == 1 {
 					r, err = ct.FindOneAndUpdate(ctx,
-						D{{"source", "pixiv"}, {"alias", buildRegexQuery(ts[0])}},
+						D{{"source", "pixiv"}, {"alias", ts[0]}},
 						D{{"$setOnInsert", D{{"alias", ts}}}},
 						optsFOAIDOnly).DecodeBytes()
 				}
