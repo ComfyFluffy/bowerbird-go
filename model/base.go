@@ -43,8 +43,8 @@ type User struct {
 
 	LastModified time.Time `bson:"lastModified,omitempty" json:"lastModified,omitempty"`
 
-	Avatars []Media              `bson:"avatars,omitempty" json:"avatars,omitempty"`
-	TagIDs  []primitive.ObjectID `bson:"tagIDs,omitempty" json:"-"`
+	AvatarIDs []primitive.ObjectID `bson:"avatarIDs,omitempty" json:"-"`
+	TagIDs    []primitive.ObjectID `bson:"tagIDs,omitempty" json:"-"`
 
 	Tags []Tag `bson:"-" json:"tags"`
 }
@@ -105,8 +105,9 @@ type PostDetail struct {
 	ID        primitive.ObjectID `bson:"_id,omitempty" json:"id"`
 	PostID    primitive.ObjectID `bson:"postID,omitempty" json:"-"`
 	Date      time.Time          `bson:"date,omitempty" json:"date,omitempty"`
-	Media     []Media            `bson:"media,omitempty" json:"media"`
 	Extension *ExtPostDetail     `bson:"extension,omitempty" json:"extension"`
+
+	MediaIDs []primitive.ObjectID `bson:"mediaIDs" json:"-"`
 }
 
 type ExtPostDetail struct {
@@ -147,11 +148,15 @@ const CollectionTag = "tags"
 // 	Source   string `bson:"source,omitempty" json:"source,omitempty"`
 // }
 
+const CollectionMedia = "media"
+
 // Media defines the assets of Post
 type Media struct {
 	MIME      string    `bson:"mime,omitempty" json:"mime"`
 	Colors    []Color   `bson:"colors,omitempty" json:"colors"`
 	Size      int       `bson:"size,omitempty" json:"size"`
+	Height    int       `bson:"height,omitempty" json:"height,omitempty"`
+	Width     int       `bson:"width,omitempty" json:"width,omitempty"`
 	URL       string    `bson:"url,omitempty" json:"-"`
 	Path      string    `bson:"path,omitempty" json:"-"`
 	Extension *ExtMedia `bson:"extension,omitempty" json:"extension"`

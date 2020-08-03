@@ -46,6 +46,7 @@ func ensureIndexes(ctx context.Context, db *mongo.Database) {
 	ct := db.Collection(model.CollectionTag)
 	cp := db.Collection(model.CollectionPost)
 	cpd := db.Collection(model.CollectionPostDetail)
+	cm := db.Collection(model.CollectionMedia)
 
 	cu.Indexes().CreateOne(
 		ctx, mongo.IndexModel{
@@ -88,22 +89,55 @@ func ensureIndexes(ctx context.Context, db *mongo.Database) {
 			Keys: D{{"alias", 1}, {"source", 1}},
 		},
 	)
+
+	cm.Indexes().CreateOne(
+		ctx, mongo.IndexModel{
+			Keys: D{{"url", 1}},
+		},
+	)
 }
 
 func buildRegexQuery(s string) primitive.Regex {
 	return primitive.Regex{Options: "i", Pattern: "^" + regexp.QuoteMeta(s) + "$"}
 }
 
-func updateAvatars(ctx context.Context, cu *mongo.Collection, uid, url string) error {
+func lookupObjectID(r bson.Raw) primitive.ObjectID {
+	return r.Lookup("_id").ObjectID()
+}
+
+func insertMediaWithURL(ctx context.Context, cm *mongo.Collection, url string, height, width int) (primitive.ObjectID, error) {
+	var updater interface{}
+	if height != 0 && width != 0 {
+		updater = D{{"$set", D{{"width", width}, {"height", height}}}}
+	} else {
+		updater = A{}
+	}
+	r, err := cm.FindOneAndUpdate(ctx,
+		D{{"url", url}}, updater,
+		optsFOAIDOnly).DecodeBytes()
+	if err != nil {
+		return primitive.ObjectID{}, err
+	}
+	return lookupObjectID(r), nil
+}
+
+func updateAvatars(ctx context.Context, db *mongo.Database, uid, url string) error {
 	if url == "" || uid == "" {
 		return nil
 	}
-	_, err := cu.UpdateOne(ctx,
+	cu := db.Collection(model.CollectionUser)
+	cm := db.Collection(model.CollectionMedia)
+
+	id, err := insertMediaWithURL(ctx, cm, url, 0, 0)
+	if err != nil {
+		return err
+	}
+	_, err = cu.UpdateOne(ctx,
 		D{{"source", "pixiv"}, {"sourceID", uid},
-			{"avatars.url",
-				D{{"$ne", url}}}},
+			{"avatarIDs",
+				D{{"$ne", id}}}},
 		D{{"$push",
-			D{{"avatars", &model.Media{URL: url}}}}})
+			D{{"avatarIDs", id}}}})
 	return err
 }
 
@@ -111,6 +145,7 @@ func saveUserProfileToDB(ru *pixiv.RespUserDetail, db *mongo.Database) error {
 	ctx := context.Background()
 	cu := db.Collection(model.CollectionUser)
 	cud := db.Collection(model.CollectionUserDetail)
+	cm := db.Collection(model.CollectionMedia)
 
 	u, ud := model.User{
 		Extension: &model.ExtUser{Pixiv: &model.PixivUser{
@@ -137,14 +172,27 @@ func saveUserProfileToDB(ru *pixiv.RespUserDetail, db *mongo.Database) error {
 			Workspace:      model.DD{},
 		}},
 	}
+
 	if x := ru.Workspace["workspace_image_url"]; x != "" {
-		ud.Extension.Pixiv.WorkspaceImage = &model.Media{URL: x}
+		id, err := insertMediaWithURL(ctx, cm, x, 0, 0)
+		if err != nil {
+			return err
+		}
+		ud.Extension.Pixiv.WorkspaceMediaID = id
 	}
 	delete(ru.Workspace, "workspace_image_url")
 	for k, v := range ru.Workspace {
 		ud.Extension.Pixiv.Workspace = append(ud.Extension.Pixiv.Workspace, bson.E{k, v})
 	}
 	sort.Sort(ud.Extension.Pixiv.Workspace)
+
+	if ru.Profile.IsUsingCustomProfileImage && ru.Profile.BackgroundImageURL != "" {
+		r, err := insertMediaWithURL(ctx, cm, ru.Profile.BackgroundImageURL, 0, 0)
+		if err != nil {
+			return err
+		}
+		ud.Extension.Pixiv.BackgroundMediaID = r
+	}
 
 	uid := strconv.Itoa(ru.User.ID)
 	r, err := cu.FindOneAndUpdate(ctx,
@@ -159,12 +207,12 @@ func saveUserProfileToDB(ru *pixiv.RespUserDetail, db *mongo.Database) error {
 		return err
 	}
 
-	err = updateAvatars(ctx, cu, uid, ru.User.ProfileImageURLs.Medium)
+	err = updateAvatars(ctx, db, uid, ru.User.ProfileImageURLs.Medium)
 	if err != nil {
 		return err
 	}
 
-	ud.UserID = r.Lookup("_id").ObjectID()
+	ud.UserID = lookupObjectID(r)
 	_, err = cud.UpdateOne(ctx, &ud, A{}, optsUUpsert)
 	if err != nil {
 		return err
@@ -172,15 +220,15 @@ func saveUserProfileToDB(ru *pixiv.RespUserDetail, db *mongo.Database) error {
 	return nil
 }
 
-func saveIllustToDB(ils []*pixiv.Illust, db *mongo.Database, usersToUpdate map[int]bool) error {
+func saveIllustsToDB(ils []*pixiv.Illust, db *mongo.Database, usersToUpdate map[int]bool) error {
 	ctx := context.Background()
 	cu := db.Collection(model.CollectionUser)
 	cp := db.Collection(model.CollectionPost)
 	cpd := db.Collection(model.CollectionPostDetail)
 	ct := db.Collection(model.CollectionTag)
+	cm := db.Collection(model.CollectionMedia)
 
 	for _, il := range ils {
-
 		p, pd := model.Post{
 			Extension: &model.ExtPost{Pixiv: &model.PixivPost{
 				IsBookmarked:   il.IsBookmarked,
@@ -193,9 +241,33 @@ func saveIllustToDB(ils []*pixiv.Illust, db *mongo.Database, usersToUpdate map[i
 			TagIDs:          make([]primitive.ObjectID, 0, len(il.Tags)),
 		}, model.PostDetail{
 			Extension: &model.ExtPostDetail{Pixiv: &model.PixivIllustDetail{
-				Type: il.Type,
+				Type:        il.Type,
+				CaptionHTML: il.Caption,
+				Title:       il.Title,
 			}},
-			Date: il.CreateDate,
+			MediaIDs: make([]primitive.ObjectID, 0, il.PageCount),
+			Date:     il.CreateDate,
+		}
+
+		if il.MetaSinglePage.OriginalImageURL != "" {
+			id, err := insertMediaWithURL(ctx, cm, il.MetaSinglePage.OriginalImageURL, il.Height, il.Width)
+			if err != nil {
+				return err
+			}
+			pd.MediaIDs = append(pd.MediaIDs, id)
+		} else {
+			for i, img := range il.MetaPages {
+				var w, h int
+				if i == 0 {
+					h = il.Height
+					w = il.Width
+				}
+				id, err := insertMediaWithURL(ctx, cm, img.ImageURLs.Original, h, w)
+				if err != nil {
+					return err
+				}
+				pd.MediaIDs = append(pd.MediaIDs, id)
+			}
 		}
 
 		// update & find TagIDs
@@ -220,7 +292,7 @@ func saveIllustToDB(ils []*pixiv.Illust, db *mongo.Database, usersToUpdate map[i
 						treg[i] = buildRegexQuery(tt)
 					}
 					r, err = ct.FindOneAndUpdate(ctx,
-						D{{"source", "pixiv"}, {"alias", D{{"$in", ts}}}},
+						D{{"source", "pixiv"}, {"alias", D{{"$in", treg}}}},
 						D{{"$addToSet", D{
 							{"alias", D{
 								{"$each", ts}}}}}},
@@ -234,7 +306,7 @@ func saveIllustToDB(ils []*pixiv.Illust, db *mongo.Database, usersToUpdate map[i
 				if err != nil {
 					return err
 				}
-				p.TagIDs = append(p.TagIDs, r.Lookup("_id").ObjectID())
+				p.TagIDs = append(p.TagIDs, lookupObjectID(r))
 			}
 		}
 
@@ -249,11 +321,11 @@ func saveIllustToDB(ils []*pixiv.Illust, db *mongo.Database, usersToUpdate map[i
 		if err != nil {
 			return err
 		}
-		p.OwnerID = r.Lookup("_id").ObjectID()
+		p.OwnerID = lookupObjectID(r)
 		if t, ok := r.Lookup("lastModified").TimeOK(); !ok || time.Now().Sub(t) > 120*time.Hour {
 			usersToUpdate[il.User.ID] = true
 		}
-		err = updateAvatars(ctx, cu, uid, il.User.ProfileImageURLs.Medium)
+		err = updateAvatars(ctx, db, uid, il.User.ProfileImageURLs.Medium)
 		if err != nil {
 			return err
 		}
@@ -262,7 +334,7 @@ func saveIllustToDB(ils []*pixiv.Illust, db *mongo.Database, usersToUpdate map[i
 			D{{"source", "pixiv"}, {"sourceID", p.SourceID}},
 			D{{"$set", &p}, {"$currentDate", D{{"lastModified", true}}}},
 			optsFOAIDOnly).DecodeBytes()
-		_, err = cpd.UpdateOne(ctx, &pd, D{{"$set", D{{"postID", r.Lookup("_id").ObjectID()}}}}, optsUUpsert)
+		_, err = cpd.UpdateOne(ctx, &pd, D{{"$set", D{{"postID", lookupObjectID(r)}}}}, optsUUpsert)
 		if err != nil {
 			return err
 		}

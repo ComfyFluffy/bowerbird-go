@@ -176,7 +176,7 @@ func processIllusts(ri *pixiv.RespIllusts, limit int, dl *downloader.Downloader,
 Loop:
 	for {
 		if db != nil {
-			err := saveIllustToDB(ri.Illusts, db, usersToUpdate)
+			err := saveIllustsToDB(ri.Illusts, db, usersToUpdate)
 			if err != nil {
 				log.G.Error(err)
 				return
