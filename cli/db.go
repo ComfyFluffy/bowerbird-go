@@ -27,7 +27,6 @@ var (
 )
 
 func connectToDB(ctx context.Context, uri string) (*mongo.Client, error) {
-	log.G.Info("connecting to database...")
 	client, err := mongo.Connect(ctx, options.Client().ApplyURI(uri))
 	if err != nil {
 		return client, err
@@ -36,6 +35,7 @@ func connectToDB(ctx context.Context, uri string) (*mongo.Client, error) {
 	if err != nil {
 		return client, err
 	}
+	log.G.Info("connected to database")
 	return client, nil
 }
 

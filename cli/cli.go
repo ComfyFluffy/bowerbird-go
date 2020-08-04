@@ -32,8 +32,9 @@ func New() *cli.App {
 	var pixivdl *downloader.Downloader
 
 	return &cli.App{
-		Name:  "Bowerbird",
-		Usage: "A toolset to manage your collection",
+		Name:    "Bowerbird",
+		Usage:   "A toolset to manage your collection",
+		Version: "0.0.1",
 		Flags: []cli.Flag{
 			&cli.StringFlag{
 				Name:        "config",
