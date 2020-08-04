@@ -245,7 +245,9 @@ func savePixivIllusts(ils []*pixiv.Illust, db *mongo.Database, usersToUpdate map
 				Title:       il.Title,
 			}},
 			MediaIDs: make([]primitive.ObjectID, 0, il.PageCount),
-			Date:     il.CreateDate,
+		}
+		if il.Visible {
+			pd.Date = il.CreateDate
 		}
 
 		if il.MetaSinglePage.OriginalImageURL != "" {
