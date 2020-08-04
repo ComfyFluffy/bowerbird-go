@@ -107,6 +107,7 @@ func (t *Task) copy(dst io.Writer, src io.Reader, bytesChan chan int64) (written
 	return written, err
 }
 
+//Downloader object
 type Downloader struct {
 	runningWorkers    int
 	stopAll           chan struct{}
@@ -147,6 +148,7 @@ func (d *Downloader) worker() {
 	}
 }
 
+//Start method activates the downloader object
 func (d *Downloader) Start() {
 	d.once.Do(func() {
 		d.Logger.Debug(fmt.Sprintf("Starting downloader"))
@@ -177,6 +179,7 @@ func (d *Downloader) Start() {
 	})
 }
 
+//Stop terminates the downloader object
 func (d *Downloader) Stop() {
 	d.Logger.Debug("Stopping downloader")
 	close(d.stopAll)
@@ -195,7 +198,7 @@ func (d *Downloader) Stop() {
 // 		}
 // 	}
 // }
-
+//Add adds tasks to the downloader
 func (d *Downloader) Add(task *Task) {
 	// d.Logger.Debug("Adding *Task", task.Request.URL, task.LocalPath)
 	d.Tasks = append(d.Tasks, task)
@@ -205,14 +208,17 @@ func (d *Downloader) Add(task *Task) {
 	}()
 }
 
+//Wait suspends the downloader
 func (d *Downloader) Wait() {
 	d.wg.Wait()
 }
 
+//NewWithDefaultClient returns a downloader with default client
 func NewWithDefaultClient() *Downloader {
 	return NewWithCliet(&http.Client{Transport: &http.Transport{}})
 }
 
+//NewWithCliet takes a http clinet and return a downloader with that client
 func NewWithCliet(c *http.Client) *Downloader {
 	return &Downloader{
 		TriesMax:     defaultRetryMax,
@@ -230,6 +236,7 @@ func NewWithCliet(c *http.Client) *Downloader {
 	}
 }
 
+//Download method does the task
 func (d *Downloader) Download(t *Task) {
 	if !t.Overwrite {
 		if _, err := os.Stat(t.LocalPath); !os.IsNotExist(err) {
