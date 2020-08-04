@@ -143,7 +143,7 @@ func New() *cli.App {
 				},
 				Subcommands: []*cli.Command{
 					{
-						Name:  "update-user",
+						Name:  "update-users",
 						Usage: "Update user profile in database",
 						Flags: []cli.Flag{
 							&cli.BoolFlag{
@@ -156,8 +156,10 @@ func New() *cli.App {
 								log.G.Error("--no-db flag is true. cannot update.")
 								return nil
 							}
-							// cu := db.Collection("users")
-
+							err := updateAllPixivUsers(db, pixivapi, c.Bool("all"))
+							if err != nil {
+								log.G.Error(err)
+							}
 							return nil
 						},
 					},

@@ -353,8 +353,11 @@ func updateAllPixivUsers(db *mongo.Database, api *pixiv.AppAPI, forceAll bool) e
 	} else {
 		filter = D{
 			{"source", "pixiv"},
-			{"lastModified",
-				D{{"$lt", time.Now().Add(-120 * time.Hour)}}}}
+			{"$or", A{
+				D{{"lastModified", D{{"$exists", false}}}},
+				D{{"lastModified", D{{"$lt", time.Now().Add(-120 * time.Hour)}}}},
+			}},
+		}
 	}
 	cur, err := cu.Find(ctx,
 		filter,
@@ -364,7 +367,7 @@ func updateAllPixivUsers(db *mongo.Database, api *pixiv.AppAPI, forceAll bool) e
 	}
 	ids := make([]int, 0, 1024)
 	for cur.Next(ctx) {
-		id := cur.Current.Lookup("sourceID").String()
+		id := cur.Current.Lookup("sourceID").StringValue()
 		idInt, err := strconv.Atoi(id)
 		if err != nil {
 			return err

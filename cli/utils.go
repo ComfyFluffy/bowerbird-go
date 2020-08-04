@@ -169,10 +169,18 @@ func hasAnyTag(src []pixiv.Tag, check ...string) bool {
 func updatePixivUsers(db *mongo.Database, api *pixiv.AppAPI, usersToUpdate []int) {
 	log.G.Info("updating", len(usersToUpdate), "user profiles...")
 	for i, id := range usersToUpdate {
+		// Current:
 		r, err := api.User.Detail(id, nil)
 		if err != nil {
 			log.G.Error(err)
-			return
+			continue
+			// if rerr, ok := err.(*pixiv.ErrAppAPI); ok && rerr.Response.StatusCode == 403 {
+			// 	log.G.Warn("got http 403: sleeping for 300s")
+			// 	time.Sleep(300 * time.Second)
+			// 	goto Current
+			// } else {
+			// 	continue
+			// }
 		}
 		err = savePixivUserProfileToDB(r, db)
 		if err != nil {
