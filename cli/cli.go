@@ -99,10 +99,6 @@ func New() *cli.App {
 						Aliases: []string{"l"},
 						Usage:   "Limit how many items to download",
 					},
-					&cli.IntFlag{
-						Name:  "offset",
-						Usage: "Start downloading with first offset items jumpped",
-					},
 				},
 				Before: func(c *cli.Context) error {
 					pixivrhc = retryablehttp.NewClient()
@@ -171,6 +167,10 @@ func New() *cli.App {
 								Name:  "private",
 								Usage: "Download the private bookmarks only",
 							},
+							&cli.IntFlag{
+								Name:  "max-bookmark-id",
+								Usage: "Specify max_bookmark_id field",
+							},
 						},
 
 						Action: func(c *cli.Context) error {
@@ -188,10 +188,10 @@ func New() *cli.App {
 								uid = pixivapi.UserID
 							}
 							var opt *pixiv.BookmarkQuery
-							offset := c.Int("offset")
-							if offset > 0 {
+							maxBookmarkID := c.Int("max-bookmark-id")
+							if maxBookmarkID > 0 {
 								opt = &pixiv.BookmarkQuery{
-									Offset: offset,
+									MaxBookmarkID: maxBookmarkID,
 								}
 							}
 							r, err := pixivapi.User.BookmarkedIllusts(uid, restrict, opt)

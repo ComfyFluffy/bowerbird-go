@@ -212,6 +212,10 @@ Loop:
 					break Loop
 				}
 
+				if !il.Visible {
+					continue
+				}
+
 				if len(tags) != 0 {
 					if tagsMatchAll {
 						if !hasEveryTag(il.Tags, tags...) {
@@ -258,7 +262,7 @@ Loop:
 				}
 				i++
 			}
-			log.G.Info(i, "items has been sent to download queue")
+			log.G.Info(i, "items were sent to download queue")
 		} else {
 			log.G.Info(idb, "items processed to database")
 			if limit != 0 && idb >= limit {

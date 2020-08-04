@@ -228,16 +228,29 @@ func savePixivIllusts(ils []*pixiv.Illust, db *mongo.Database, usersToUpdate map
 	cm := db.Collection(model.CollectionMedia)
 
 	for _, il := range ils {
+		sid := strconv.Itoa(il.ID)
+		if !il.Visible {
+			log.G.Warn("skipped invisible item:", il.ID)
+			_, err := cp.UpdateOne(
+				ctx,
+				D{{"source", "pixiv"}, {"sourceID", sid}},
+				D{{"$set", D{{"sourceInvisible", true}}}},
+				optsUUpsert)
+			if err != nil {
+				return err
+			}
+			continue
+		}
+
 		p, pd := model.Post{
 			Extension: &model.ExtPost{Pixiv: &model.PixivPost{
 				IsBookmarked:   il.IsBookmarked,
 				TotalBookmarks: il.TotalBookmarks,
 				TotalViews:     il.TotalView,
 			}},
-			Source:          "pixiv",
-			SourceID:        strconv.Itoa(il.ID),
-			SourceInvisible: !il.Visible,
-			TagIDs:          make([]primitive.ObjectID, 0, len(il.Tags)),
+			Source:   "pixiv",
+			SourceID: sid,
+			TagIDs:   make([]primitive.ObjectID, 0, len(il.Tags)),
 		}, model.PostDetail{
 			Extension: &model.ExtPostDetail{Pixiv: &model.PixivIllustDetail{
 				Type:        il.Type,
@@ -245,9 +258,7 @@ func savePixivIllusts(ils []*pixiv.Illust, db *mongo.Database, usersToUpdate map
 				Title:       il.Title,
 			}},
 			MediaIDs: make([]primitive.ObjectID, 0, il.PageCount),
-		}
-		if il.Visible {
-			pd.Date = il.CreateDate
+			Date:     il.CreateDate,
 		}
 
 		if il.MetaSinglePage.OriginalImageURL != "" {
