@@ -3,7 +3,7 @@ module github.com/WOo0W/bowerbird
 go 1.14
 
 require (
-	github.com/WOo0W/go-pixiv v1.1.2
+	github.com/WOo0W/go-pixiv v1.1.3
 	github.com/aws/aws-sdk-go v1.33.17 // indirect
 	github.com/cpuguy83/go-md2man/v2 v2.0.0 // indirect
 	github.com/dustin/go-humanize v1.0.0

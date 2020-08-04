@@ -120,7 +120,7 @@ func insertMediaWithURL(ctx context.Context, cm *mongo.Collection, url string, h
 	return lookupObjectID(r), nil
 }
 
-func updateAvatars(ctx context.Context, db *mongo.Database, uid, url string) error {
+func updatePixivAvatars(ctx context.Context, db *mongo.Database, uid, url string) error {
 	if url == "" || uid == "" {
 		return nil
 	}
@@ -140,7 +140,7 @@ func updateAvatars(ctx context.Context, db *mongo.Database, uid, url string) err
 	return err
 }
 
-func saveUserProfileToDB(ru *pixiv.RespUserDetail, db *mongo.Database) error {
+func savePixivUserProfileToDB(ru *pixiv.RespUserDetail, db *mongo.Database) error {
 	ctx := context.Background()
 	cu := db.Collection(model.CollectionUser)
 	cud := db.Collection(model.CollectionUserDetail)
@@ -206,7 +206,7 @@ func saveUserProfileToDB(ru *pixiv.RespUserDetail, db *mongo.Database) error {
 		return err
 	}
 
-	err = updateAvatars(ctx, db, uid, ru.User.ProfileImageURLs.Medium)
+	err = updatePixivAvatars(ctx, db, uid, ru.User.ProfileImageURLs.Medium)
 	if err != nil {
 		return err
 	}
@@ -219,7 +219,7 @@ func saveUserProfileToDB(ru *pixiv.RespUserDetail, db *mongo.Database) error {
 	return nil
 }
 
-func saveIllustsToDB(ils []*pixiv.Illust, db *mongo.Database, usersToUpdate map[int]bool) error {
+func savePixivIllusts(ils []*pixiv.Illust, db *mongo.Database, usersToUpdate map[int]bool) error {
 	ctx := context.Background()
 	cu := db.Collection(model.CollectionUser)
 	cp := db.Collection(model.CollectionPost)
@@ -316,10 +316,10 @@ func saveIllustsToDB(ils []*pixiv.Illust, db *mongo.Database, usersToUpdate map[
 			return err
 		}
 		p.OwnerID = lookupObjectID(r)
-		if t, ok := r.Lookup("lastModified").TimeOK(); !ok || time.Now().Sub(t) > 120*time.Hour {
+		if t, ok := r.Lookup("lastModified").TimeOK(); !ok || time.Since(t) > 120*time.Hour {
 			usersToUpdate[il.User.ID] = true
 		}
-		err = updateAvatars(ctx, db, uid, il.User.ProfileImageURLs.Medium)
+		err = updatePixivAvatars(ctx, db, uid, il.User.ProfileImageURLs.Medium)
 		if err != nil {
 			return err
 		}
@@ -341,5 +341,36 @@ func saveIllustsToDB(ils []*pixiv.Illust, db *mongo.Database, usersToUpdate map[
 	// if err != nil {
 	// 	return err
 	// }
+	return nil
+}
+
+func updateAllPixivUsers(db *mongo.Database, api *pixiv.AppAPI, forceAll bool) error {
+	ctx := context.Background()
+	cu := db.Collection("users")
+	var filter D
+	if forceAll {
+		filter = D{{"source", "pixiv"}}
+	} else {
+		filter = D{
+			{"source", "pixiv"},
+			{"lastModified",
+				D{{"$lt", time.Now().Add(-120 * time.Hour)}}}}
+	}
+	cur, err := cu.Find(ctx,
+		filter,
+		options.Find().SetProjection(D{{"sourceID", 1}}))
+	if err != nil {
+		return err
+	}
+	ids := make([]int, 0, 1024)
+	for cur.Next(ctx) {
+		id := cur.Current.Lookup("sourceID").String()
+		idInt, err := strconv.Atoi(id)
+		if err != nil {
+			return err
+		}
+		ids = append(ids, idInt)
+	}
+	updatePixivUsers(db, api, ids)
 	return nil
 }

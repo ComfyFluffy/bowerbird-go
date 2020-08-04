@@ -143,6 +143,25 @@ func New() *cli.App {
 				},
 				Subcommands: []*cli.Command{
 					{
+						Name:  "update-user",
+						Usage: "Update user profile in database",
+						Flags: []cli.Flag{
+							&cli.BoolFlag{
+								Name:  "all",
+								Usage: "Update all users despite modified date",
+							},
+						},
+						Action: func(c *cli.Context) error {
+							if noDB {
+								log.G.Error("--no-db flag is true. cannot update.")
+								return nil
+							}
+							// cu := db.Collection("users")
+
+							return nil
+						},
+					},
+					{
 						Name:  "bookmark",
 						Usage: "Get user's bookmarked works",
 						Flags: []cli.Flag{

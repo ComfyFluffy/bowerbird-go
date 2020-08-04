@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"syscall"
@@ -29,9 +30,6 @@ var pximgDate = regexp.MustCompile(
 )
 
 func setProxy(tr *http.Transport, uri string) {
-	if uri == "none" {
-		return
-	}
 	pr, err := url.Parse(uri)
 	if err != nil {
 		log.G.Error(err)
@@ -168,6 +166,23 @@ func hasAnyTag(src []pixiv.Tag, check ...string) bool {
 	return false
 }
 
+func updatePixivUsers(db *mongo.Database, api *pixiv.AppAPI, usersToUpdate []int) {
+	log.G.Info("updating", len(usersToUpdate), "user profiles...")
+	for i, id := range usersToUpdate {
+		r, err := api.User.Detail(id, nil)
+		if err != nil {
+			log.G.Error(err)
+			return
+		}
+		err = savePixivUserProfileToDB(r, db)
+		if err != nil {
+			log.G.Error(err)
+			continue
+		}
+		log.G.Info(fmt.Sprintf("[%d/%d] updated user %s (%d)", i+1, len(usersToUpdate), r.User.Name, r.User.ID))
+	}
+}
+
 func processIllusts(ri *pixiv.RespIllusts, limit int, dl *downloader.Downloader, api *pixiv.AppAPI, basePath string, tags []string, tagsMatchAll bool, db *mongo.Database, dbOnly bool) {
 	i := 0
 	idb := 0
@@ -176,7 +191,7 @@ func processIllusts(ri *pixiv.RespIllusts, limit int, dl *downloader.Downloader,
 Loop:
 	for {
 		if db != nil {
-			err := saveIllustsToDB(ri.Illusts, db, usersToUpdate)
+			err := savePixivIllusts(ri.Illusts, db, usersToUpdate)
 			if err != nil {
 				log.G.Error(err)
 				return
@@ -256,20 +271,13 @@ Loop:
 	}
 	log.G.Info("all", i, "items processed")
 
-	log.G.Info("updating", len(usersToUpdate), "user profiles...")
-	for id := range usersToUpdate {
-		r, err := api.User.Detail(id, nil)
-		if err != nil {
-			log.G.Error(err)
-			return
-		}
-		err = saveUserProfileToDB(r, db)
-		if err != nil {
-			log.G.Error(err)
-			continue
-		}
-		log.G.Info(fmt.Sprintf("updated user %s (%d)", r.User.Name, r.User.ID))
+	userIDs := make([]int, 0, len(usersToUpdate))
+	for i := range usersToUpdate {
+		userIDs = append(userIDs, i)
 	}
+	sort.Ints(userIDs)
+
+	updatePixivUsers(db, api, userIDs)
 }
 
 func downloaderUILoop(dl *downloader.Downloader) {
