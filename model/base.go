@@ -107,7 +107,7 @@ type PostDetail struct {
 	Date      time.Time          `bson:"date,omitempty" json:"date,omitempty"`
 	Extension *ExtPostDetail     `bson:"extension,omitempty" json:"extension"`
 
-	MediaIDs []primitive.ObjectID `bson:"mediaIDs" json:"-"`
+	MediaIDs []primitive.ObjectID `bson:"mediaIDs,omitempty" json:"-"`
 }
 
 type ExtPostDetail struct {

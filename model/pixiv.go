@@ -16,7 +16,7 @@ type PixivUser struct {
 
 // PixivUserProfile extends UserDetail with Pixiv's user struct
 type PixivUserProfile struct {
-	Account           string             `bson:"account" json:"account"`
+	Account           string             `bson:"account,omitempty" json:"account"`
 	IsPremium         bool               `bson:"isPremium" json:"isPremium"`
 	Birth             string             `bson:"birth,omitempty" json:"birth,omitempty"`
 	Region            string             `bson:"region,omitempty" json:"region,omitempty"`

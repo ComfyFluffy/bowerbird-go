@@ -119,7 +119,7 @@ type Downloader struct {
 
 	Logger *log.Logger
 
-	in, pre chan *Task
+	in chan *Task
 
 	Tasks []*Task
 	Done  chan int
@@ -163,12 +163,6 @@ func (d *Downloader) Start() {
 				case <-d.globleBytesTicker.C:
 					d.BytesLastSec = d.bytesNow
 					d.bytesNow = 0
-				case t := <-d.pre:
-					if d.runningWorkers < d.MaxWorkers {
-						go d.worker()
-						d.runningWorkers++
-					}
-					d.in <- t
 				case <-d.stopAll:
 					d.bytesNow = 0
 					d.BytesLastSec = 0
@@ -177,6 +171,11 @@ func (d *Downloader) Start() {
 				}
 			}
 		}()
+
+		for i := 0; i < d.MaxWorkers; i++ {
+			go d.worker()
+		}
+		d.runningWorkers = d.MaxWorkers
 	})
 }
 
@@ -201,11 +200,11 @@ func (d *Downloader) Stop() {
 // }
 //Add adds tasks to the downloader
 func (d *Downloader) Add(task *Task) {
-	d.Logger.Debug("Adding *Task", task.Request.URL, task.LocalPath)
+	// d.Logger.Debug("Adding *Task", task.Request.URL, task.LocalPath)
 	d.Tasks = append(d.Tasks, task)
 	d.wg.Add(1)
 	go func() {
-		d.pre <- task
+		d.in <- task
 	}()
 }
 
@@ -228,13 +227,12 @@ func NewWithCliet(c *http.Client) *Downloader {
 		Backoff:      helper.DefaultBackoff,
 		Client:       c,
 		Logger:       log.G,
-		in:           make(chan *Task, 8192),
-		pre:          make(chan *Task),
+		in:           make(chan *Task, 65535),
 		bytesChan:    make(chan int64),
 		stopAll:      make(chan struct{}),
 		Done:         make(chan int),
 		Tasks:        []*Task{},
-		MaxWorkers:   5,
+		MaxWorkers:   2,
 	}
 }
 
@@ -242,13 +240,14 @@ func NewWithCliet(c *http.Client) *Downloader {
 func (d *Downloader) Download(t *Task) {
 	if !t.Overwrite {
 		if _, err := os.Stat(t.LocalPath); !os.IsNotExist(err) {
-			d.Logger.Debug("file already exists:", t.LocalPath)
+			// d.Logger.Debug("file already exists:", t.LocalPath)
 			return
 		}
 	}
+	log.G.Debug("starting task", t.Request.URL, t.LocalPath)
 
 	onErr := func(message string, err error) {
-		d.Logger.Error(fmt.Sprintf("Task failed: download %s to %s: %s: %s", t.Request.URL, t.LocalPath, message, err))
+		d.Logger.Error(fmt.Sprintf("task failed: download %s to %s: %s: %s", t.Request.URL, t.LocalPath, message, err))
 		t.Status = Failed
 		t.Err = err
 	}

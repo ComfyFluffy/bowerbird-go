@@ -228,16 +228,29 @@ func savePixivIllusts(ils []*pixiv.Illust, db *mongo.Database, usersToUpdate map
 	cm := db.Collection(model.CollectionMedia)
 
 	for _, il := range ils {
+		sid := strconv.Itoa(il.ID)
+		if !il.Visible {
+			log.G.Warn("skipped invisible item:", il.ID)
+			_, err := cp.UpdateOne(
+				ctx,
+				D{{"source", "pixiv"}, {"sourceID", sid}},
+				D{{"$set", D{{"sourceInvisible", true}}}},
+				optsUUpsert)
+			if err != nil {
+				return err
+			}
+			continue
+		}
+
 		p, pd := model.Post{
 			Extension: &model.ExtPost{Pixiv: &model.PixivPost{
 				IsBookmarked:   il.IsBookmarked,
 				TotalBookmarks: il.TotalBookmarks,
 				TotalViews:     il.TotalView,
 			}},
-			Source:          "pixiv",
-			SourceID:        strconv.Itoa(il.ID),
-			SourceInvisible: !il.Visible,
-			TagIDs:          make([]primitive.ObjectID, 0, len(il.Tags)),
+			Source:   "pixiv",
+			SourceID: sid,
+			TagIDs:   make([]primitive.ObjectID, 0, len(il.Tags)),
 		}, model.PostDetail{
 			Extension: &model.ExtPostDetail{Pixiv: &model.PixivIllustDetail{
 				Type:        il.Type,
@@ -353,8 +366,11 @@ func updateAllPixivUsers(db *mongo.Database, api *pixiv.AppAPI, forceAll bool) e
 	} else {
 		filter = D{
 			{"source", "pixiv"},
-			{"lastModified",
-				D{{"$lt", time.Now().Add(-120 * time.Hour)}}}}
+			{"$or", A{
+				D{{"lastModified", D{{"$exists", false}}}},
+				D{{"lastModified", D{{"$lt", time.Now().Add(-120 * time.Hour)}}}},
+			}},
+		}
 	}
 	cur, err := cu.Find(ctx,
 		filter,
@@ -364,7 +380,7 @@ func updateAllPixivUsers(db *mongo.Database, api *pixiv.AppAPI, forceAll bool) e
 	}
 	ids := make([]int, 0, 1024)
 	for cur.Next(ctx) {
-		id := cur.Current.Lookup("sourceID").String()
+		id := cur.Current.Lookup("sourceID").StringValue()
 		idInt, err := strconv.Atoi(id)
 		if err != nil {
 			return err

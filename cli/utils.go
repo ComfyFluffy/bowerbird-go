@@ -169,10 +169,18 @@ func hasAnyTag(src []pixiv.Tag, check ...string) bool {
 func updatePixivUsers(db *mongo.Database, api *pixiv.AppAPI, usersToUpdate []int) {
 	log.G.Info("updating", len(usersToUpdate), "user profiles...")
 	for i, id := range usersToUpdate {
+		// Current:
 		r, err := api.User.Detail(id, nil)
 		if err != nil {
 			log.G.Error(err)
-			return
+			continue
+			// if rerr, ok := err.(*pixiv.ErrAppAPI); ok && rerr.Response.StatusCode == 403 {
+			// 	log.G.Warn("got http 403: sleeping for 300s")
+			// 	time.Sleep(300 * time.Second)
+			// 	goto Current
+			// } else {
+			// 	continue
+			// }
 		}
 		err = savePixivUserProfileToDB(r, db)
 		if err != nil {
@@ -202,6 +210,10 @@ Loop:
 			for _, il := range ri.Illusts {
 				if limit != 0 && i >= limit {
 					break Loop
+				}
+
+				if !il.Visible {
+					continue
 				}
 
 				if len(tags) != 0 {
@@ -250,7 +262,7 @@ Loop:
 				}
 				i++
 			}
-			log.G.Info(i, "items has been sent to download queue")
+			log.G.Info(i, "items were sent to download queue")
 		} else {
 			log.G.Info(idb, "items processed to database")
 			if limit != 0 && idb >= limit {
