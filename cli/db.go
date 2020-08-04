@@ -329,7 +329,7 @@ func savePixivIllusts(ils []*pixiv.Illust, db *mongo.Database, usersToUpdate map
 			return err
 		}
 		p.OwnerID = lookupObjectID(r)
-		if t, ok := r.Lookup("lastModified").TimeOK(); !ok || time.Since(t) > 120*time.Hour {
+		if t, ok := r.Lookup("lastModified").TimeOK(); !ok || time.Since(t) > 240*time.Hour {
 			usersToUpdate[il.User.ID] = true
 		}
 		err = updatePixivAvatars(ctx, db, uid, il.User.ProfileImageURLs.Medium)
@@ -368,7 +368,7 @@ func updateAllPixivUsers(db *mongo.Database, api *pixiv.AppAPI, forceAll bool) e
 			{"source", "pixiv"},
 			{"$or", A{
 				D{{"lastModified", D{{"$exists", false}}}},
-				D{{"lastModified", D{{"$lt", time.Now().Add(-120 * time.Hour)}}}},
+				D{{"lastModified", D{{"$lt", time.Now().Add(-240 * time.Hour)}}}},
 			}},
 		}
 	}
