@@ -317,13 +317,10 @@ func savePixivIllusts(ils []*pixiv.Illust, db *mongo.Database, usersToUpdate map
 			}
 		}
 
-		u := model.User{
-			Extension: &model.ExtUser{Pixiv: &model.PixivUser{IsFollowed: il.User.IsFollowed}},
-		}
 		uid := strconv.Itoa(il.User.ID)
 		r, err := cu.FindOneAndUpdate(ctx,
 			D{{"source", "pixiv"}, {"sourceID", uid}},
-			D{{"$set", u}},
+			D{{"$set", D{{"extension.pixiv.isFollowed", il.User.IsFollowed}}}},
 			optsFOAIDOnly.SetProjection(D{{"_id", 1}, {"lastModified", 1}})).DecodeBytes()
 		if err != nil {
 			return err
