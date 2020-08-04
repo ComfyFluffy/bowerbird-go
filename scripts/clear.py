@@ -69,8 +69,9 @@ def checkHash():
     os.chdir(dd)
     s1 = set()
     s2 = set()
-    for x in os.listdir('.'):
-        s1.add(hashFile(x))
+    for root, dirs, files in os.walk("."):
+        for f in files:
+            s1.add(hashFile(os.path.join(root, f)))
 
     os.chdir(d)
     for root, dirs, files in os.walk("."):
@@ -79,4 +80,4 @@ def checkHash():
     print(s1.issubset(s2), s1.difference(s2))
 
 
-mvDiff()
+checkHash()
