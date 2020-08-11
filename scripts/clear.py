@@ -1,4 +1,3 @@
-#%%
 import os
 import hashlib
 import shutil
@@ -80,4 +79,5 @@ def checkHash():
     print(s1.issubset(s2), s1.difference(s2))
 
 
-checkHash()
+mvDiff()
+# checkHash()

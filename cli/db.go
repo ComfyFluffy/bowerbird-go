@@ -219,7 +219,7 @@ func savePixivUserProfileToDB(ru *pixiv.RespUserDetail, db *mongo.Database) erro
 	return nil
 }
 
-func savePixivIllusts(ils []*pixiv.Illust, db *mongo.Database, usersToUpdate map[int]bool) error {
+func savePixivIllusts(ils []*pixiv.Illust, db *mongo.Database, usersToUpdate map[int]struct{}) error {
 	ctx := context.Background()
 	cu := db.Collection(model.CollectionUser)
 	cp := db.Collection(model.CollectionPost)
@@ -327,7 +327,7 @@ func savePixivIllusts(ils []*pixiv.Illust, db *mongo.Database, usersToUpdate map
 		}
 		p.OwnerID = lookupObjectID(r)
 		if t, ok := r.Lookup("lastModified").TimeOK(); !ok || time.Since(t) > 240*time.Hour {
-			usersToUpdate[il.User.ID] = true
+			usersToUpdate[il.User.ID] = struct{}{}
 		}
 		err = updatePixivAvatars(ctx, db, uid, il.User.ProfileImageURLs.Medium)
 		if err != nil {

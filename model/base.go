@@ -83,6 +83,7 @@ type Post struct {
 	SourceID        string             `bson:"sourceID,omitempty" json:"sourceID,omitempty"`
 	SourceInvisible bool               `bson:"sourceInvisible" json:"sourceInvisible"`
 	Extension       *ExtPost           `bson:"extension,omitempty" json:"extension"`
+	Language        string             `bson:"language,omitempty" json:"language,omitempty"`
 
 	LastModified time.Time `bson:"lastModified,omitempty" json:"lastModified,omitempty"`
 
