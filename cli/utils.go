@@ -194,7 +194,7 @@ func updatePixivUsers(db *mongo.Database, api *pixiv.AppAPI, usersToUpdate []int
 func processIllusts(ri *pixiv.RespIllusts, limit int, dl *downloader.Downloader, api *pixiv.AppAPI, basePath string, tags []string, tagsMatchAll bool, db *mongo.Database, dbOnly bool) {
 	i := 0
 	idb := 0
-	usersToUpdate := make(map[int]bool, 120)
+	usersToUpdate := make(map[int]struct{}, 120)
 
 Loop:
 	for {
@@ -270,7 +270,7 @@ Loop:
 			}
 		}
 
-		if ri.NextURL == "" {
+		if ri.NextURL == "" || limit != 0 && i >= limit {
 			break Loop
 		}
 
@@ -283,13 +283,15 @@ Loop:
 	}
 	log.G.Info("all", i, "items processed")
 
-	userIDs := make([]int, 0, len(usersToUpdate))
-	for i := range usersToUpdate {
-		userIDs = append(userIDs, i)
-	}
-	sort.Ints(userIDs)
+	if len(usersToUpdate) > 0 {
+		userIDs := make([]int, 0, len(usersToUpdate))
+		for i := range usersToUpdate {
+			userIDs = append(userIDs, i)
+		}
+		sort.Ints(userIDs)
 
-	updatePixivUsers(db, api, userIDs)
+		updatePixivUsers(db, api, userIDs)
+	}
 }
 
 func downloaderUILoop(dl *downloader.Downloader) {

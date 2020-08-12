@@ -157,7 +157,7 @@ func (d *Downloader) worker() {
 //Start method activates the downloader object
 func (d *Downloader) Start() {
 	d.once.Do(func() {
-		d.Logger.Debug(fmt.Sprintf("Starting downloader"))
+		d.Logger.Debug(fmt.Sprintf("starting downloader"))
 
 		d.globleBytesTicker = time.NewTicker(1 * time.Second)
 

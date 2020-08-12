@@ -5,13 +5,13 @@ import "go.mongodb.org/mongo-driver/bson/primitive"
 // PixivUser extends User with Pixiv's user struct
 type PixivUser struct {
 	IsFollowed           bool `bson:"isFollowed" json:"isFollowed"`
-	TotalFollowing       int  `bson:"totalFollowing,omitempty" json:"totalFollowing"`
-	TotalPublicBookmarks int  `bson:"totalPublicBookmarks,omitempty" json:"totalPublicBookmarks"`
-	TotalIllusts         int  `bson:"totalIllusts,omitempty" json:"totalIllusts"`
-	TotalManga           int  `bson:"totalManga,omitempty" json:"totalManga"`
-	TotalNovels          int  `bson:"totalNovels,omitempty" json:"totalNovels"`
-	TotalIllustSeries    int  `bson:"totalIllustSeries,omitempty" json:"totalIllustSeries"`
-	TotalNovelSeries     int  `bson:"totalNovelSeries,omitempty" json:"totalNovelSeries"`
+	TotalFollowing       int  `bson:"totalFollowing" json:"totalFollowing"`
+	TotalPublicBookmarks int  `bson:"totalPublicBookmarks" json:"totalPublicBookmarks"`
+	TotalIllusts         int  `bson:"totalIllusts" json:"totalIllusts"`
+	TotalManga           int  `bson:"totalManga" json:"totalManga"`
+	TotalNovels          int  `bson:"totalNovels" json:"totalNovels"`
+	TotalIllustSeries    int  `bson:"totalIllustSeries" json:"totalIllustSeries"`
+	TotalNovelSeries     int  `bson:"totalNovelSeries" json:"totalNovelSeries"`
 }
 
 // PixivUserProfile extends UserDetail with Pixiv's user struct
@@ -32,8 +32,8 @@ type PixivUserProfile struct {
 // PixivPost extends PostDetail with Pixiv's illust struct
 type PixivPost struct {
 	IsBookmarked   bool `bson:"isBookmarked" json:"isBookmarked"`
-	TotalBookmarks int  `bson:"totalBookmarks,omitempty" json:"totalBookmarks,omitempty"`
-	TotalViews     int  `bson:"totalView,omitempty" json:"totalView,omitempty"`
+	TotalBookmarks int  `bson:"totalBookmarks" json:"totalBookmarks,omitempty"`
+	TotalViews     int  `bson:"totalView" json:"totalView,omitempty"`
 }
 
 // PixivIllustDetail extends PostDetail with Pixiv's illust struct

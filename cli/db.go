@@ -27,7 +27,6 @@ var (
 )
 
 func connectToDB(ctx context.Context, uri string) (*mongo.Client, error) {
-	log.G.Info("connecting to database...")
 	client, err := mongo.Connect(ctx, options.Client().ApplyURI(uri))
 	if err != nil {
 		return client, err
@@ -36,6 +35,7 @@ func connectToDB(ctx context.Context, uri string) (*mongo.Client, error) {
 	if err != nil {
 		return client, err
 	}
+	log.G.Info("connected to database")
 	return client, nil
 }
 
@@ -219,7 +219,7 @@ func savePixivUserProfileToDB(ru *pixiv.RespUserDetail, db *mongo.Database) erro
 	return nil
 }
 
-func savePixivIllusts(ils []*pixiv.Illust, db *mongo.Database, usersToUpdate map[int]bool) error {
+func savePixivIllusts(ils []*pixiv.Illust, db *mongo.Database, usersToUpdate map[int]struct{}) error {
 	ctx := context.Background()
 	cu := db.Collection(model.CollectionUser)
 	cp := db.Collection(model.CollectionPost)
@@ -317,20 +317,17 @@ func savePixivIllusts(ils []*pixiv.Illust, db *mongo.Database, usersToUpdate map
 			}
 		}
 
-		u := model.User{
-			Extension: &model.ExtUser{Pixiv: &model.PixivUser{IsFollowed: il.User.IsFollowed}},
-		}
 		uid := strconv.Itoa(il.User.ID)
 		r, err := cu.FindOneAndUpdate(ctx,
 			D{{"source", "pixiv"}, {"sourceID", uid}},
-			D{{"$set", u}},
+			D{{"$set", D{{"extension.pixiv.isFollowed", il.User.IsFollowed}}}},
 			optsFOAIDOnly.SetProjection(D{{"_id", 1}, {"lastModified", 1}})).DecodeBytes()
 		if err != nil {
 			return err
 		}
 		p.OwnerID = lookupObjectID(r)
-		if t, ok := r.Lookup("lastModified").TimeOK(); !ok || time.Since(t) > 120*time.Hour {
-			usersToUpdate[il.User.ID] = true
+		if t, ok := r.Lookup("lastModified").TimeOK(); !ok || time.Since(t) > 240*time.Hour {
+			usersToUpdate[il.User.ID] = struct{}{}
 		}
 		err = updatePixivAvatars(ctx, db, uid, il.User.ProfileImageURLs.Medium)
 		if err != nil {
@@ -368,7 +365,7 @@ func updateAllPixivUsers(db *mongo.Database, api *pixiv.AppAPI, forceAll bool) e
 			{"source", "pixiv"},
 			{"$or", A{
 				D{{"lastModified", D{{"$exists", false}}}},
-				D{{"lastModified", D{{"$lt", time.Now().Add(-120 * time.Hour)}}}},
+				D{{"lastModified", D{{"$lt", time.Now().Add(-240 * time.Hour)}}}},
 			}},
 		}
 	}
