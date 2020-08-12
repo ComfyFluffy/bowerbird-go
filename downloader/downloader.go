@@ -107,32 +107,38 @@ func (t *Task) copy(dst io.Writer, src io.Reader, bytesChan chan int64) (written
 	return written, err
 }
 
-//Downloader object
+//The core of downloader
 type Downloader struct {
 	runningWorkers    int
 	stopAll           chan struct{}
 	globleBytesTicker *time.Ticker
 	bytesChan         chan int64
 	bytesNow,
-
+	//bytes downloaded in the last second
 	BytesLastSec int64
-
+	//logger of the downloader
 	Logger *log.Logger
 
 	in chan *Task
-
+	//tasks that are to be downloaded
 	Tasks []*Task
-	Done  chan int
+	//A finishing indicator
+	Done chan int
 
 	wg   sync.WaitGroup
 	once sync.Once
-
-	Client       *http.Client
-	TriesMax     int
+	//http client for this downloader
+	Client *http.Client
+	//max number of retries
+	TriesMax int
+	//minimum wait time of retries
 	RetryWaitMin time.Duration
+	//maximum wait time of retries
 	RetryWaitMax time.Duration
-	Backoff      Backoff
-	MaxWorkers   int
+	//backoff function for retries
+	Backoff Backoff
+	//maximum threads for
+	MaxWorkers int
 }
 
 func (d *Downloader) worker() {
