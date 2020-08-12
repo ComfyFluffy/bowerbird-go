@@ -137,7 +137,7 @@ type Downloader struct {
 	RetryWaitMax time.Duration
 	//backoff function for retries
 	Backoff Backoff
-	//maximum threads for
+	//maximum threads for a downloader task
 	MaxWorkers int
 }
 
