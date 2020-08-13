@@ -22,6 +22,13 @@ jobs:
     - name: Check out code into the Go module directory
       uses: actions/checkout@v2
 
+    - uses: actions/cache@v2
+      with:
+        path: ~/go/pkg/mod
+        key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+        restore-keys: |
+          ${{ runner.os }}-go-
+
     - name: Get dependencies
       run: |
         go get -v -t -d ./...
@@ -30,8 +37,30 @@ jobs:
             dep ensure
         fi
 
-    - name: Build
-      run: go build -v .
+    - name: Build for Linux
+      run: GOOS=linux GOARCH=amd64 go build -v .
 
+    - name: Build for Windows
+      run: GOOS=windows GOARCH=amd64 go build -v .
+
+    - name: Upload Linux build to Artifact
+      uses: actions/upload-artifact@v2.1.4
+      with:
+        # Artifact name
+        name: bowerbird
+        # A file, directory or wildcard pattern that describes what to upload
+        path: bowerbird
+        # The desired behavior if no files are found using the provided path.
+        if-no-files-found: error
+
+    - name: Upload Windows build to Artifact
+      uses: actions/upload-artifact@v2.1.4
+      with:
+        # Artifact name
+        name: bowerbird.exe
+        # A file, directory or wildcard pattern that describes what to upload
+        path: bowerbird.exe
+        # The desired behavior if no files are found using the provided path.
+        if-no-files-found: error  
     # - name: Test
       # run: go test -v .
