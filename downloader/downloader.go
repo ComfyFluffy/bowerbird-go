@@ -59,6 +59,8 @@ type Task struct {
 	Request      *http.Request
 	LocalPath    string
 	Overwrite    bool
+
+	AfterFinished func(*Task)
 }
 
 func (t *Task) copy(dst io.Writer, src io.Reader, bytesChan chan int64) (written int64, err error) {
@@ -123,7 +125,6 @@ type Downloader struct {
 	//tasks that are to be downloaded
 	Tasks []*Task
 	//A finishing indicator
-	Done chan int
 
 	wg   sync.WaitGroup
 	once sync.Once
@@ -236,7 +237,6 @@ func NewWithCliet(c *http.Client) *Downloader {
 		in:           make(chan *Task, 65535),
 		bytesChan:    make(chan int64),
 		stopAll:      make(chan struct{}),
-		Done:         make(chan int),
 		Tasks:        []*Task{},
 		MaxWorkers:   2,
 	}
@@ -247,6 +247,10 @@ func (d *Downloader) Download(t *Task) {
 	if !t.Overwrite {
 		if _, err := os.Stat(t.LocalPath); !os.IsNotExist(err) {
 			// d.Logger.Debug("file already exists:", t.LocalPath)
+			t.Status = Finished
+			if t.AfterFinished != nil {
+				t.AfterFinished(t)
+			}
 			return
 		}
 	}
@@ -294,6 +298,7 @@ func (d *Downloader) Download(t *Task) {
 			select {
 			case <-ctx.Done():
 				d.Logger.Debug("Task canceled by context:", ctx.Err())
+				t.Status = Canceled
 				return
 			case <-time.After(d.Backoff(d.RetryWaitMin, d.RetryWaitMax, tries, nil)):
 			}
@@ -301,7 +306,7 @@ func (d *Downloader) Download(t *Task) {
 
 		resp, err := d.Client.Do(req)
 		if err != nil {
-			d.Logger.Debug("Response error:", err, req.URL)
+			d.Logger.Debug("response error:", err, req.URL)
 			continue
 		}
 		if !(resp.StatusCode >= 200 && resp.StatusCode < 300) {
@@ -321,12 +326,16 @@ func (d *Downloader) Download(t *Task) {
 
 		resp.Body.Close()
 		if written == resp.ContentLength {
-			t.Status = Finished
-			d.Logger.Info("task finished:", filepath.Base(t.LocalPath))
 			f.Close()
 			err := os.Rename(part, t.LocalPath)
 			if err != nil {
 				onErr("rename .part file", err)
+				return
+			}
+			t.Status = Finished
+			d.Logger.Info("task finished:", filepath.Base(t.LocalPath))
+			if t.AfterFinished != nil {
+				t.AfterFinished(t)
 			}
 			return
 		}

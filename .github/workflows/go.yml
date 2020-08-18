@@ -13,6 +13,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
 
+    # - name: Install packages
+    #   run: sudo apt install upx-ucl
+
     - name: Set up Go 1.x
       uses: actions/setup-go@v2
       with:
@@ -42,6 +45,11 @@ jobs:
 
     - name: Build for Windows
       run: GOOS=windows GOARCH=amd64 go build -v .
+    
+    # - name: Compress binary files
+    #   run: |
+    #     upx bowerbird
+    #     upx bowerbird.exe
 
     - name: Upload Linux build to Artifact
       uses: actions/upload-artifact@v2.1.4

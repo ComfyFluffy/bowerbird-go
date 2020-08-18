@@ -1,16 +1,11 @@
 package cli
 
 import (
+	"context"
 	"fmt"
 	"io/ioutil"
-	"net/http"
-	"net/url"
 	"os"
 	"path/filepath"
-	"regexp"
-	"sort"
-	"strconv"
-	"strings"
 	"syscall"
 	"time"
 
@@ -21,43 +16,10 @@ import (
 	"github.com/WOo0W/go-pixiv/pixiv"
 	"github.com/dustin/go-humanize"
 	"go.mongodb.org/mongo-driver/mongo"
+	"go.mongodb.org/mongo-driver/mongo/options"
+	"go.mongodb.org/mongo-driver/mongo/readpref"
 	"golang.org/x/crypto/ssh/terminal"
-	"golang.org/x/net/proxy"
 )
-
-var pximgDate = regexp.MustCompile(
-	`(\d{4}/\d{2}/\d{2}/\d{2}/\d{2}/\d{2})`,
-)
-
-func setProxy(tr *http.Transport, uri string) {
-	pr, err := url.Parse(uri)
-	if err != nil {
-		log.G.Error(err)
-		return
-	}
-
-	switch strings.ToLower(pr.Scheme) {
-	case "http":
-		hp := http.ProxyURL(pr)
-		tr.Proxy = hp
-	case "socks5":
-		var spauth *proxy.Auth
-		spw, _ := pr.User.Password()
-		spu := pr.User.Username()
-		if spw != "" || spu != "" {
-			spauth = &proxy.Auth{User: spu, Password: spw}
-		}
-		spd, err := proxy.SOCKS5("tcp", pr.Host, spauth, proxy.Direct)
-		if err != nil {
-			log.G.Error(err)
-			return
-		}
-		tr.DialContext = spd.(proxy.ContextDialer).DialContext
-	default:
-		log.G.Error("set proxy: unsupported protocol")
-		return
-	}
-}
 
 func loadConfigFile(conf *config.Config, path string) error {
 	if path == "" {
@@ -129,171 +91,6 @@ func authPixiv(api *pixiv.AppAPI, c *config.Config) error {
 	return nil
 }
 
-// pximgSingleFileWithDate returns path like `C:\test\123\27427531_p0_20120522161622.png`.
-// date: string like 2012/05/22/16/16/22
-func pximgSingleFileWithDate(basePath string, userID int, u *url.URL) string {
-	fn := filepath.Base(u.Path)
-	i := strings.LastIndexByte(fn, '.')
-	return filepath.Join(basePath, strconv.Itoa(userID), fn[:i]+"_"+strings.ReplaceAll(pximgDate.FindString(u.Path), "/", "")+fn[i:])
-}
-
-//hasEveryTag checks if every tag is in the input tags
-func hasEveryTag(src []pixiv.Tag, check ...string) bool {
-	for _, i := range check {
-		has := false
-		for _, j := range src {
-			if i == j.Name || i == j.TranslatedName {
-				has = true
-				break
-			}
-		}
-		if !has {
-			return false
-		}
-	}
-	return true
-}
-
-//hasAnyTag checks if any tag in check matches the tags in src
-func hasAnyTag(src []pixiv.Tag, check ...string) bool {
-	for _, i := range src {
-		for _, j := range check {
-			if j == i.Name || j == i.TranslatedName {
-				return true
-			}
-		}
-	}
-	return false
-}
-
-func updatePixivUsers(db *mongo.Database, api *pixiv.AppAPI, usersToUpdate []int) {
-	log.G.Info("updating", len(usersToUpdate), "user profiles...")
-	for i, id := range usersToUpdate {
-		// Current:
-		r, err := api.User.Detail(id, nil)
-		if err != nil {
-			log.G.Error(err)
-			continue
-			// if rerr, ok := err.(*pixiv.ErrAppAPI); ok && rerr.Response.StatusCode == 403 {
-			// 	log.G.Warn("got http 403: sleeping for 300s")
-			// 	time.Sleep(300 * time.Second)
-			// 	goto Current
-			// } else {
-			// 	continue
-			// }
-		}
-		err = savePixivUserProfileToDB(r, db)
-		if err != nil {
-			log.G.Error(err)
-			continue
-		}
-		log.G.Info(fmt.Sprintf("[%d/%d] updated user %s (%d)", i+1, len(usersToUpdate), r.User.Name, r.User.ID))
-	}
-}
-
-func processIllusts(ri *pixiv.RespIllusts, limit int, dl *downloader.Downloader, api *pixiv.AppAPI, basePath string, tags []string, tagsMatchAll bool, db *mongo.Database, dbOnly bool) {
-	i := 0
-	idb := 0
-	usersToUpdate := make(map[int]struct{}, 120)
-
-Loop:
-	for {
-		if db != nil {
-			err := savePixivIllusts(ri.Illusts, db, usersToUpdate)
-			if err != nil {
-				log.G.Error(err)
-				return
-			}
-			idb += len(ri.Illusts)
-		}
-		if !dbOnly {
-			for _, il := range ri.Illusts {
-				if limit != 0 && i >= limit {
-					break Loop
-				}
-
-				if !il.Visible {
-					continue
-				}
-
-				if len(tags) != 0 {
-					if tagsMatchAll {
-						if !hasEveryTag(il.Tags, tags...) {
-							continue
-						}
-					} else {
-						if !hasAnyTag(il.Tags, tags...) {
-							continue
-						}
-					}
-				}
-
-				if il.MetaSinglePage.OriginalImageURL != "" {
-					req, err := api.NewPximgRequest("GET", il.MetaSinglePage.OriginalImageURL, nil)
-					if err != nil {
-						log.G.Error(err)
-						continue
-					}
-
-					dl.Add(&downloader.Task{
-						Request: req,
-						// string like `C:\test\12345\67891_p0_20200202123456.jpg`
-						LocalPath: pximgSingleFileWithDate(basePath, il.User.ID, req.URL)})
-
-				} else {
-					for _, iu := range il.MetaPages {
-						req, err := api.NewPximgRequest("GET", iu.ImageURLs.Original, nil)
-						if err != nil {
-							log.G.Error(err)
-							continue
-						}
-
-						dl.Add(
-							&downloader.Task{
-								Request: req,
-								// string like `C:\test\12345\67890_2020134554\67890_p0.jpg`
-								LocalPath: filepath.Join(
-									basePath, strconv.Itoa(il.User.ID),
-									strconv.Itoa(il.ID)+"_"+
-										strings.ReplaceAll(pximgDate.FindString(req.URL.Path), "/", ""),
-									filepath.Base(req.URL.Path))},
-						)
-					}
-				}
-				i++
-			}
-			log.G.Info(i, "items were sent to download queue")
-		} else {
-			log.G.Info(idb, "items processed to database")
-			if limit != 0 && idb >= limit {
-				break Loop
-			}
-		}
-
-		if ri.NextURL == "" || limit != 0 && i >= limit {
-			break Loop
-		}
-
-		var err error
-		ri, err = ri.NextIllusts()
-		if err != nil {
-			log.G.Error(err)
-			return
-		}
-	}
-	log.G.Info("all", i, "items processed")
-
-	if len(usersToUpdate) > 0 {
-		userIDs := make([]int, 0, len(usersToUpdate))
-		for i := range usersToUpdate {
-			userIDs = append(userIDs, i)
-		}
-		sort.Ints(userIDs)
-
-		updatePixivUsers(db, api, userIDs)
-	}
-}
-
 func downloaderUILoop(dl *downloader.Downloader) {
 	ticker := time.NewTicker(1 * time.Second)
 	defer ticker.Stop()
@@ -307,4 +104,17 @@ func downloaderUILoop(dl *downloader.Downloader) {
 		}
 	}()
 	dl.Wait()
+}
+
+func connectToDB(ctx context.Context, uri string) (*mongo.Client, error) {
+	client, err := mongo.Connect(ctx, options.Client().ApplyURI(uri))
+	if err != nil {
+		return client, err
+	}
+	err = client.Ping(ctx, readpref.Primary())
+	if err != nil {
+		return client, err
+	}
+	log.G.Info("connected to database")
+	return client, nil
 }

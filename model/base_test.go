@@ -7,7 +7,7 @@ import (
 )
 
 func TestDDSort(t *testing.T) {
-	d := DD{{"b", 1}, {"a", 2}}
+	d := DD{{Key: "b", Value: 1}, {Key: "a", Value: 2}}
 	sort.Sort(d)
 	b, err := json.Marshal(d)
 	var dd DD

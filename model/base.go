@@ -9,6 +9,11 @@ import (
 	"go.mongodb.org/mongo-driver/bson/primitive"
 )
 
+type (
+	a = bson.A
+	d = bson.D
+)
+
 type DD bson.D
 
 func (a DD) Len() int           { return len(a) }
@@ -60,7 +65,7 @@ type ExtUser struct {
 	Pixiv *PixivUser `bson:"pixiv,omitempty" json:"pixiv,omitempty"`
 }
 
-// UserDetail defines user details
+// UserDetail defines user details with change history
 type UserDetail struct {
 	ID        primitive.ObjectID `bson:"_id,omitempty" json:"id"`
 	UserID    primitive.ObjectID `bson:"userID,omitempty" json:"-"`
@@ -68,7 +73,7 @@ type UserDetail struct {
 	Extension *ExtUserDetail     `bson:"extension,omitempty" json:"extension"`
 }
 
-// DBCollection returns the name of mongodb collection
+// CollectionUserDetail defines the collection name in MongoDB
 const CollectionUserDetail = "user_details"
 
 type ExtUserDetail struct {
@@ -90,7 +95,7 @@ type Post struct {
 	OwnerID primitive.ObjectID   `bson:"ownerID,omitempty" json:"-"`
 	TagIDs  []primitive.ObjectID `bson:"tagIDs,omitempty" json:"-"`
 
-	Owner User  `bson:"-" json:"owner,omitempty"`
+	Owner *User `bson:"-" json:"owner,omitempty"`
 	Tags  []Tag `bson:"-" json:"tags,omitempty"`
 }
 
@@ -151,16 +156,27 @@ const CollectionTag = "tags"
 
 const CollectionMedia = "media"
 
+type MediaType string
+
+const (
+	MediaPixivAvatar            MediaType = "pixiv-avatar"
+	MediaPixivWorkspaceImage              = "pixiv-workspace-image"
+	MediaPixivIllust                      = "pixiv-illust"
+	MediaPixivProfileBackground           = "pixiv-profile-background"
+)
+
 // Media defines the assets of Post
 type Media struct {
-	MIME      string    `bson:"mime,omitempty" json:"mime"`
-	Colors    []Color   `bson:"colors,omitempty" json:"colors"`
-	Size      int       `bson:"size,omitempty" json:"size"`
-	Height    int       `bson:"height,omitempty" json:"height,omitempty"`
-	Width     int       `bson:"width,omitempty" json:"width,omitempty"`
-	URL       string    `bson:"url,omitempty" json:"-"`
-	Path      string    `bson:"path,omitempty" json:"-"`
-	Extension *ExtMedia `bson:"extension,omitempty" json:"extension"`
+	ID        primitive.ObjectID `bson:"_id,omitempty" json:"id,omitempty"`
+	Type      MediaType          `bson:"type,omitempty" json:"type,omitempty"`
+	MIME      string             `bson:"mime,omitempty" json:"mime"`
+	Colors    []Color            `bson:"colors,omitempty" json:"colors"`
+	Size      int                `bson:"size,omitempty" json:"size"`
+	Height    int                `bson:"height,omitempty" json:"height,omitempty"`
+	Width     int                `bson:"width,omitempty" json:"width,omitempty"`
+	URL       string             `bson:"url,omitempty" json:"-"`
+	Path      string             `bson:"path,omitempty" json:"-"`
+	Extension *ExtMedia          `bson:"extension,omitempty" json:"extension"`
 }
 
 type ExtMedia struct {

@@ -19,6 +19,7 @@ var (
 	HiGreen  = color.New(color.FgHiGreen)
 	HiYellow = color.New(color.FgHiYellow)
 	HiRed    = color.New(color.FgHiRed)
+	// Bold     = color.New(color.Bold)
 
 	SHiBlack  = HiBlack.Sprint
 	SHiBlue   = HiBlue.Sprint

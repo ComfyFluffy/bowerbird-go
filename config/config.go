@@ -13,6 +13,11 @@ import (
 	"github.com/WOo0W/bowerbird/cli/log"
 )
 
+const (
+	Version   = "0.1.0"
+	UIVersion = ""
+)
+
 var (
 	userHome, _ = os.UserHomeDir()
 	defaultRoot = filepath.Join(userHome, ".bowerbird")
@@ -56,8 +61,7 @@ func (s *StorageConfig) ParsedPixiv() string {
 }
 
 type ServerConfig struct {
-	IP   string
-	Port uint16
+	Address string
 }
 type DatabaseConfig struct {
 	MongoURI     string
@@ -134,8 +138,7 @@ func New() *Config {
 			FileLevel:    "INFO",
 		},
 		Server: ServerConfig{
-			IP:   "127.0.0.1",
-			Port: 10233,
+			Address: "127.0.0.1:10233",
 		},
 		Storage: StorageConfig{
 			RootDir: defaultRoot,

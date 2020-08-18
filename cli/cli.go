@@ -5,6 +5,9 @@ import (
 	"fmt"
 	"net/http"
 
+	"github.com/WOo0W/bowerbird/model"
+	"github.com/WOo0W/bowerbird/server"
+
 	"github.com/WOo0W/bowerbird/downloader"
 	"github.com/WOo0W/bowerbird/helper"
 	"github.com/WOo0W/go-pixiv/pixiv"
@@ -12,6 +15,7 @@ import (
 	"go.mongodb.org/mongo-driver/mongo"
 
 	"github.com/WOo0W/bowerbird/cli/log"
+	pixivh "github.com/WOo0W/bowerbird/helper/pixiv"
 
 	"github.com/WOo0W/bowerbird/config"
 	"github.com/urfave/cli/v2"
@@ -24,17 +28,21 @@ func New() *cli.App {
 	noDB := false
 	dbOnly := false
 
-	var dbc *mongo.Client
-	var db *mongo.Database
+	var (
+		dbc *mongo.Client
+		db  *mongo.Database
+	)
 
-	var pixivapi *pixiv.AppAPI
-	var pixivrhc *retryablehttp.Client
-	var pixivdl *downloader.Downloader
+	var (
+		pixivapi *pixiv.AppAPI
+		pixivrhc *retryablehttp.Client
+		pixivdl  *downloader.Downloader
+	)
 
 	return &cli.App{
 		Name:    "Bowerbird",
 		Usage:   "A toolset to manage your collection",
-		Version: "0.0.1",
+		Version: config.Version,
 		Flags: []cli.Flag{
 			&cli.StringFlag{
 				Name:        "config",
@@ -72,11 +80,21 @@ func New() *cli.App {
 					return nil
 				}
 				db = dbc.Database(conf.Database.DatabaseName)
-				ensureIndexes(ctx, db)
+				err = model.EnsureIndexes(ctx, db)
+				if err != nil {
+					log.G.Error(err)
+					return nil
+				}
 			}
 			return nil
 		},
 		Commands: []*cli.Command{
+			{
+				Name: "serve",
+				Action: func(c *cli.Context) error {
+					return server.Serve(conf, db)
+				},
+			},
 			{
 				Name:  "pixiv",
 				Usage: "Get works from pixiv.net",
@@ -108,24 +126,24 @@ func New() *cli.App {
 					pixivrhc.RequestLogHook = func(l retryablehttp.Logger, req *http.Request, tries int) {
 						log.G.Debug(fmt.Sprintf("pixiv http: %s %s tries: %d", req.Method, req.URL, tries))
 					}
-					tr := pixivrhc.HTTPClient.Transport.(*http.Transport)
-					if conf.Pixiv.APIProxy != "" {
-						setProxy(tr, conf.Pixiv.APIProxy)
-					} else if conf.Network.GlobalProxy != "" {
-						setProxy(tr, conf.Network.GlobalProxy)
+					tra := pixivrhc.HTTPClient.Transport.(*http.Transport)
+					err := helper.SetTransportProxy(tra, conf.Pixiv.DownloaderProxy, conf.Network.GlobalProxy)
+					if err != nil {
+						log.G.Error(err)
+						return nil
 					}
 					pixivapi = pixiv.NewWithClient(pixivrhc.StandardClient())
 					pixivapi.SetLanguage(conf.Pixiv.Language)
 
 					trd := &http.Transport{}
-					if conf.Pixiv.DownloaderProxy != "" {
-						setProxy(trd, conf.Pixiv.DownloaderProxy)
-					} else if conf.Network.GlobalProxy != "" {
-						setProxy(trd, conf.Network.GlobalProxy)
+					err = helper.SetTransportProxy(trd, conf.Pixiv.DownloaderProxy, conf.Network.GlobalProxy)
+					if err != nil {
+						log.G.Error(err)
+						return nil
 					}
 					pixivdl = downloader.NewWithCliet(&http.Client{Transport: trd})
 
-					err := authPixiv(pixivapi, conf)
+					err = authPixiv(pixivapi, conf)
 					if err != nil {
 						log.G.Error("pixiv: auth failed:", err)
 						return nil
@@ -153,7 +171,7 @@ func New() *cli.App {
 								log.G.Error("--no-db flag is true. cannot update.")
 								return nil
 							}
-							err := updateAllPixivUsers(db, pixivapi, c.Bool("all"))
+							err := pixivh.UpdateAllUsers(db, pixivapi, c.Bool("all"))
 							if err != nil {
 								log.G.Error(err)
 							}
@@ -202,7 +220,7 @@ func New() *cli.App {
 							}
 
 							pixivdl.Start()
-							processIllusts(r, c.Int("limit"), pixivdl, pixivapi, conf.Storage.ParsedPixiv(), c.StringSlice("tags"), c.Bool("tags-match-all"), db, dbOnly)
+							pixivh.ProcessIllusts(r, c.Int("limit"), pixivdl, pixivapi, conf.Storage.ParsedPixiv(), c.StringSlice("tags"), c.Bool("tags-match-all"), db, dbOnly)
 							downloaderUILoop(pixivdl)
 							return nil
 						},
@@ -230,7 +248,7 @@ func New() *cli.App {
 							}
 
 							pixivdl.Start()
-							processIllusts(ri, c.Int("limit"), pixivdl, pixivapi, conf.Storage.ParsedPixiv(), c.StringSlice("tags"), c.Bool("tags-match-all"), db, dbOnly)
+							pixivh.ProcessIllusts(ri, c.Int("limit"), pixivdl, pixivapi, conf.Storage.ParsedPixiv(), c.StringSlice("tags"), c.Bool("tags-match-all"), db, dbOnly)
 							downloaderUILoop(pixivdl)
 							return nil
 						},
