@@ -59,6 +59,7 @@ func Serve(conf *config.Config, db *mongo.Database) error {
 	e.Static("/api/v1/local/pixiv", conf.Storage.ParsedPixiv())
 	e.GET("/api/v1/media/by-id/:id", h.mediaByID)
 	e.POST("/api/v1/db/find/:collection", h.dbFind)
+	e.POST("/api/v1/db/aggregate/:collection", h.dbAggregate)
 	e.GET("/api/v1/proxy/*", h.proxy)
 
 	e.HTTPErrorHandler = errHandler

@@ -33,6 +33,10 @@ type findOptions struct {
 	Sort   bson.Raw `json:"sort"`
 }
 
+type aggregateOptions struct {
+	Pipeline bson.Raw `json:"pipeline"`
+}
+
 func resultFromCollectionName(collection string) (interface{}, error) {
 	var a interface{}
 	switch collection {
@@ -84,7 +88,25 @@ func (h *handler) dbFind(c echo.Context) error {
 	if err := r.All(ctx, a); err != nil {
 		return err
 	}
-	return c.JSON(200, a)
+	return c.JSON(http.StatusOK, a)
+}
+
+func (h *handler) dbAggregate(c echo.Context) error {
+	ctx := c.Request().Context()
+	ao := &aggregateOptions{}
+	if err := c.Bind(ao); err != nil {
+		return err
+	}
+	r, err := h.db.Collection(c.Param("collection")).Aggregate(ctx, nil)
+	if err != nil {
+		return err
+	}
+	a := &[]map[string]interface{}{}
+	err = r.All(ctx, a)
+	if err != nil {
+		return err
+	}
+	return c.JSON(http.StatusOK, a)
 }
 
 func (h *handler) proxy(c echo.Context) error {

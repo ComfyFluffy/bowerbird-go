@@ -20,12 +20,13 @@ import (
 
 var (
 	PximgDate = regexp.MustCompile(
+		// 2018/11/06/00/25/50
 		`(\d{4}\/\d{2}\/\d{2}\/\d{2}\/\d{2}\/\d{2})`,
 	)
 	PximgIllust = regexp.MustCompile(
 		// https://i.pximg.net/img-original/img/2020/06/04/11/26/29/82078769_p0.jpg
 		// https://i.pximg.net/img-original/img/2018/11/06/00/25/50/71525726_ugoira0.jpg
-		`^https:\/\/i\.pximg\.net\/img-original\/img\/\d{4}\/\d{2}\/\d{2}\/\d{2}\/\d{2}\/\d{2}\/\d+_(ugoira|p)\d+\..+$`,
+		`^https:\/\/i\.pximg\.net\/img-original\/img\/\d{4}\/\d{2}\/\d{2}\/\d{2}\/\d{2}\/\d{2}\/\d+_(?:ugoira|p)\d+\..+$`,
 	)
 	PximgAvatar = regexp.MustCompile(
 		// https://i.pximg.net/user-profile/img/2020/08/04/11/43/18/19112778_c80cc80ba5399b9181d26f48b222b204_170.jpg
@@ -38,6 +39,9 @@ var (
 	)
 	PximgWorkspaceImage = regexp.MustCompile(
 		`^https:\/\/i\.pximg\.net\/workspace\/img\/\d{4}\/\d{2}\/\d{2}\/\d{2}\/\d{2}\/\d{2}\/\d+_[0-9a-f]{32}\..+$`,
+	)
+	PximgUgoiraZip = regexp.MustCompile(
+		`^https:\/\/i\.pximg\.net\/img-zip-ugoira\/img\/\d{4}\/\d{2}\/\d{2}\/\d{2}\/\d{2}\/\d{2}\/\d+_ugoira\d+x\d+\..+$`,
 	)
 )
 
