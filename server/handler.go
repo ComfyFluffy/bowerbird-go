@@ -1,10 +1,23 @@
 package server
 
 import (
+	"crypto/sha1"
+	"encoding/hex"
+	"image"
+	"image/jpeg"
+	"strconv"
+
+	// import image decoders
+	_ "image/gif"
+	_ "image/png"
+
+	"github.com/disintegration/imaging"
+
 	"io"
 	"net/http"
 	"net/url"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 
@@ -24,10 +37,12 @@ type (
 )
 
 type handler struct {
-	db             *mongo.Database
-	conf           *config.Config
-	clientPximg    *http.Client
-	parsedPixivDir string
+	db               *mongo.Database
+	conf             *config.Config
+	clientPximg      *http.Client
+	parsedPixivDir   string
+	findUserPipeline a
+	findPostPipeline a
 }
 
 func resultFromCollectionName(collection string) (interface{}, error) {
@@ -55,7 +70,79 @@ func (h *handler) apiVersion(c echo.Context) error {
 	return c.String(200, "bowerbird "+config.Version)
 }
 
-type findOptions struct {
+func openImage(fullPath string) (image.Image, error) {
+	f, err := os.Open(fullPath)
+
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, echo.ErrNotFound.SetInternal(err)
+		}
+		return nil, err
+	}
+	defer f.Close()
+	return imaging.Decode(f)
+}
+
+func sendTempThumbnail(c echo.Context, fullPath, name string, width, height int) error {
+	tempd := filepath.Join(os.TempDir(), "bowerbird")
+	os.MkdirAll(tempd, 0755)
+
+	s := sha1.Sum([]byte(name + strconv.Itoa(width) + "_" + strconv.Itoa(height)))
+	tempn := hex.EncodeToString(s[:])
+	tempf := filepath.Join(tempd, tempn)
+
+	if _, err := os.Stat(tempf); err == nil {
+		return c.File(tempf)
+	}
+
+	img, err := openImage(fullPath)
+	if err != nil {
+		return err
+	}
+	var w io.Writer
+	tempfp := tempf + "_"
+	f, err := os.OpenFile(tempfp, os.O_WRONLY|os.O_TRUNC|os.O_CREATE, 0644)
+	if err == nil {
+		w = io.MultiWriter(f, c.Response())
+		defer f.Close()
+	} else {
+		w = c.Response()
+	}
+	img = imaging.Fill(img, width, height, imaging.Center, imaging.Lanczos)
+	c.Response().Header()["Content-Type"] = []string{"image/jpeg"}
+	err = jpeg.Encode(w, img, &jpeg.Options{
+		Quality: 75,
+	})
+	f.Close()
+	if err == nil {
+		os.Rename(tempfp, tempf)
+	}
+	return err
+}
+
+type localMediaQuery struct {
+	Width  int `query:"width"`
+	Height int `query:"height"`
+}
+
+func (h *handler) localMediaPixiv(c echo.Context) error {
+	q := localMediaQuery{}
+	if err := c.Bind(&q); err != nil {
+		return err
+	}
+	p, err := url.PathUnescape(c.Param("*"))
+	if err != nil {
+		return err
+	}
+	p = path.Clean("/" + p) // "/"+ for security
+	fullPath := filepath.Join(h.parsedPixivDir, p)
+	if q.Width != 0 && q.Height != 0 {
+		return sendTempThumbnail(c, fullPath, p, q.Width, q.Height)
+	}
+	return c.File(fullPath)
+}
+
+type dbFindOptions struct {
 	Filter bson.Raw `json:"filter"`
 	Skip   *int64   `json:"skip"`
 	Limit  *int64   `json:"limit"`
@@ -70,7 +157,7 @@ func (h *handler) dbFind(c echo.Context) error {
 		return err
 	}
 
-	fo := &findOptions{}
+	fo := &dbFindOptions{}
 	if err := c.Bind(fo); err != nil {
 		return err
 	}
@@ -91,13 +178,13 @@ func (h *handler) dbFind(c echo.Context) error {
 	return c.JSON(http.StatusOK, a)
 }
 
-type aggregateOptions struct {
+type dbAggregateOptions struct {
 	Pipeline bson.Raw `json:"pipeline"`
 }
 
 func (h *handler) dbAggregate(c echo.Context) error {
 	ctx := c.Request().Context()
-	ao := &aggregateOptions{}
+	ao := &dbAggregateOptions{}
 	if err := c.Bind(ao); err != nil {
 		return err
 	}
@@ -117,7 +204,7 @@ func (h *handler) proxy(c echo.Context) error {
 	req := c.Request()
 	res := c.Response()
 
-	urlp, err := url.ParseRequestURI(strings.TrimPrefix(req.URL.Path, "/api/v1/proxy/"))
+	urlp, err := url.ParseRequestURI(c.Param("*"))
 	if err != nil {
 		return err
 	}
@@ -168,7 +255,6 @@ func (h *handler) proxy(c echo.Context) error {
 	res.WriteHeader(resProxy.StatusCode)
 
 	_, err = io.Copy(res, resProxy.Body)
-	res.Flush()
 	if err != nil {
 		return err
 	}
@@ -224,39 +310,56 @@ func (h *handler) mediaByID(c echo.Context) error {
 		}
 	}
 	u := r.Lookup("url").StringValue()
-	c.Logger().Info("file ", f, " not found, redirected to proxy ")
+	c.Logger().Info("file ", f, " not found, redirected to proxy")
 	return c.Redirect(http.StatusTemporaryRedirect,
 		"/api/v1/proxy/"+u)
 }
 
-type userOptions struct {
+type findWithPipelineOptions struct {
 	Sort  orderedmap.O `json:"sort"`
+	Match orderedmap.O `json:"match"`
 	Skip  int          `json:"skip"`
 	Limit int          `json:"limit"`
 }
 
-func (h *handler) user(c echo.Context) error {
-	opt := &userOptions{}
+func findWithPipeline(c echo.Context, collection *mongo.Collection, pipeline1, pipeline2 a, v interface{}) error {
+	opt := &findWithPipelineOptions{}
 	if err := c.Bind(opt); err != nil {
 		return err
 	}
 	ctx := c.Request().Context()
 	sort := opt.Sort
 	pipeline := append(
-		a{d{{Key: "$sort", Value: sort}}},
-		model.PipelineUsersAll...)
+		pipeline1,
+		d{{Key: "$sort", Value: sort}},
+	)
+	pipeline = append(pipeline, pipeline2...)
 	pipeline = append(pipeline,
 		d{{Key: "$skip", Value: opt.Skip}},
 		d{{Key: "$limit", Value: opt.Limit}},
+		d{{Key: "$match", Value: opt.Match}},
 	)
-	r, err := h.db.Collection(model.CollectionUser).Aggregate(ctx, pipeline)
+	r, err := collection.Aggregate(ctx, pipeline)
 	if err != nil {
 		return err
 	}
-	a := []model.Post{}
-	err = r.All(ctx, &a)
+	return r.All(ctx, v)
+}
+
+func (h *handler) findUser(c echo.Context) error {
+	a := &[]model.User{}
+	err := findWithPipeline(c, h.db.Collection(model.CollectionUser), h.findUserPipeline, model.PipelineUsersAll, a)
 	if err != nil {
 		return err
 	}
-	return c.JSON(http.StatusOK, &a)
+	return c.JSON(http.StatusOK, a)
+}
+
+func (h *handler) findPost(c echo.Context) error {
+	a := &[]model.Post{}
+	err := findWithPipeline(c, h.db.Collection(model.CollectionPost), h.findPostPipeline, model.PipelinePostsAll, a)
+	if err != nil {
+		return err
+	}
+	return c.JSON(http.StatusOK, a)
 }
