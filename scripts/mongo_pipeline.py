@@ -62,49 +62,42 @@ pipelinePostsAll = [{
     ]
 }]
 
-pipelineUsersAll = [
-    {
-        '$sort': {
-            '_id': -1
-        }
-    }, {
-        '$lookup': {
-            'from': 'media', 
-            'localField': 'avatarIDs', 
-            'foreignField': '_id', 
-            'as': 'avatar'
-        }
-    }, {
-        '$set': {
-            'avatar': {
-                '$arrayElemAt': [
-                    '$avatar', -1
-                ]
-            }
-        }
-    }, {
-        '$lookup': {
-            'from': 'user_details', 
-            'localField': '_id', 
-            'foreignField': 'userID', 
-            'as': 'userDetail'
-        }
-    }, {
-        '$set': {
-            'userDetail': {
-                '$arrayElemAt': [
-                    '$userDetail', -1
-                ]
-            }
-        }
-    }, {
-        '$unset': [
-            'avatarIDs', 'userDetail.userID'
-        ]
+pipelineUsersAll = [{
+    '$sort': {
+        '_id': -1
     }
-]
+}, {
+    '$lookup': {
+        'from': 'media',
+        'localField': 'avatarIDs',
+        'foreignField': '_id',
+        'as': 'avatar'
+    }
+}, {
+    '$set': {
+        'avatar': {
+            '$arrayElemAt': ['$avatar', -1]
+        }
+    }
+}, {
+    '$lookup': {
+        'from': 'user_details',
+        'localField': '_id',
+        'foreignField': 'userID',
+        'as': 'userDetail'
+    }
+}, {
+    '$set': {
+        'userDetail': {
+            '$arrayElemAt': ['$userDetail', -1]
+        }
+    }
+}, {
+    '$unset': ['avatarIDs', 'userDetail.userID']
+}]
 
-# parse pipeline to golang bson.A
+
+# parse object to golang bson.D & bson.A struct
 def parseObjToGo(a) -> str:
     if isinstance(a, dict):
         s = 'd{\n'

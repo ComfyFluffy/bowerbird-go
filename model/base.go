@@ -1,8 +1,6 @@
 package model
 
 import (
-	"encoding/json"
-	"sort"
 	"time"
 
 	"go.mongodb.org/mongo-driver/bson"
@@ -13,30 +11,6 @@ type (
 	a = bson.A
 	d = bson.D
 )
-
-type DD bson.D
-
-func (a DD) Len() int           { return len(a) }
-func (a DD) Swap(i, j int)      { a[i], a[j] = a[j], a[i] }
-func (a DD) Less(i, j int) bool { return a[i].Key < a[j].Key }
-func (a DD) MarshalJSON() ([]byte, error) {
-	return json.Marshal(bson.D(a).Map())
-}
-
-//TODO: better ways to unmarshal it?
-
-func (a *DD) UnmarshalJSON(b []byte) error {
-	var m bson.M
-	err := json.Unmarshal(b, &m)
-	if err != nil {
-		return err
-	}
-	for k, v := range m {
-		*a = append(*a, bson.E{Key: k, Value: v})
-	}
-	sort.Sort(a)
-	return nil
-}
 
 // User defines the person
 type User struct {
@@ -51,7 +25,9 @@ type User struct {
 	AvatarIDs []primitive.ObjectID `bson:"avatarIDs,omitempty" json:"-"`
 	TagIDs    []primitive.ObjectID `bson:"tagIDs,omitempty" json:"-"`
 
-	Tags []Tag `bson:"-" json:"tags"`
+	Tags       []Tag       `bson:"tags,omitempty" json:"tags,omitempty"`
+	Avatar     *Media      `bson:"avatar,omitempty" json:"avatar,omitempty"`
+	UserDetail *UserDetail `bson:"userDetail,omitempty" json:"userDetail,omitempty"`
 }
 
 const CollectionUser = "users"
@@ -92,11 +68,13 @@ type Post struct {
 
 	LastModified time.Time `bson:"lastModified,omitempty" json:"lastModified,omitempty"`
 
-	OwnerID primitive.ObjectID   `bson:"ownerID,omitempty" json:"-"`
-	TagIDs  []primitive.ObjectID `bson:"tagIDs,omitempty" json:"-"`
+	ParentID primitive.ObjectID   `bson:"parent,omitempty" json:"-"`
+	OwnerID  primitive.ObjectID   `bson:"ownerID,omitempty" json:"-"`
+	TagIDs   []primitive.ObjectID `bson:"tagIDs,omitempty" json:"-"`
 
-	Owner *User `bson:"-" json:"owner,omitempty"`
-	Tags  []Tag `bson:"-" json:"tags,omitempty"`
+	Tags       []Tag       `bson:"tags,omitempty" json:"tags,omitempty"`
+	PostDetail *PostDetail `bson:"postDetail,omitempty" json:"postDetail,omitempty"`
+	Owner      *User       `bson:"owner,omitempty" json:"owner,omitempty"`
 }
 
 // DBCollection returns the name of mongodb collection

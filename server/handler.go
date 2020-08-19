@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/WOo0W/bowerbird/config"
+	"github.com/WOo0W/bowerbird/helper/orderedmap"
 	"github.com/WOo0W/bowerbird/model"
 	"github.com/labstack/echo/v4"
 	"go.mongodb.org/mongo-driver/bson"
@@ -17,24 +18,16 @@ import (
 	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
-type d = bson.D
+type (
+	a = bson.A
+	d = bson.D
+)
 
 type handler struct {
 	db             *mongo.Database
 	conf           *config.Config
 	clientPximg    *http.Client
 	parsedPixivDir string
-}
-
-type findOptions struct {
-	Filter bson.Raw `json:"filter"`
-	Skip   *int64   `json:"skip"`
-	Limit  *int64   `json:"limit"`
-	Sort   bson.Raw `json:"sort"`
-}
-
-type aggregateOptions struct {
-	Pipeline bson.Raw `json:"pipeline"`
 }
 
 func resultFromCollectionName(collection string) (interface{}, error) {
@@ -60,6 +53,13 @@ func resultFromCollectionName(collection string) (interface{}, error) {
 
 func (h *handler) apiVersion(c echo.Context) error {
 	return c.String(200, "bowerbird "+config.Version)
+}
+
+type findOptions struct {
+	Filter bson.Raw `json:"filter"`
+	Skip   *int64   `json:"skip"`
+	Limit  *int64   `json:"limit"`
+	Sort   bson.Raw `json:"sort"`
 }
 
 func (h *handler) dbFind(c echo.Context) error {
@@ -89,6 +89,10 @@ func (h *handler) dbFind(c echo.Context) error {
 		return err
 	}
 	return c.JSON(http.StatusOK, a)
+}
+
+type aggregateOptions struct {
+	Pipeline bson.Raw `json:"pipeline"`
 }
 
 func (h *handler) dbAggregate(c echo.Context) error {
@@ -223,4 +227,36 @@ func (h *handler) mediaByID(c echo.Context) error {
 	c.Logger().Info("file ", f, " not found, redirected to proxy ")
 	return c.Redirect(http.StatusTemporaryRedirect,
 		"/api/v1/proxy/"+u)
+}
+
+type userOptions struct {
+	Sort  orderedmap.O `json:"sort"`
+	Skip  int          `json:"skip"`
+	Limit int          `json:"limit"`
+}
+
+func (h *handler) user(c echo.Context) error {
+	opt := &userOptions{}
+	if err := c.Bind(opt); err != nil {
+		return err
+	}
+	ctx := c.Request().Context()
+	sort := opt.Sort
+	pipeline := append(
+		a{d{{Key: "$sort", Value: sort}}},
+		model.PipelineUsersAll...)
+	pipeline = append(pipeline,
+		d{{Key: "$skip", Value: opt.Skip}},
+		d{{Key: "$limit", Value: opt.Limit}},
+	)
+	r, err := h.db.Collection(model.CollectionUser).Aggregate(ctx, pipeline)
+	if err != nil {
+		return err
+	}
+	a := []model.Post{}
+	err = r.All(ctx, &a)
+	if err != nil {
+		return err
+	}
+	return c.JSON(http.StatusOK, &a)
 }

@@ -127,7 +127,7 @@ func New() *cli.App {
 						log.G.Debug(fmt.Sprintf("pixiv http: %s %s tries: %d", req.Method, req.URL, tries))
 					}
 					tra := pixivrhc.HTTPClient.Transport.(*http.Transport)
-					err := helper.SetTransportProxy(tra, conf.Pixiv.DownloaderProxy, conf.Network.GlobalProxy)
+					err := helper.SetTransportProxy(tra, conf.Pixiv.APIProxy, conf.Network.GlobalProxy)
 					if err != nil {
 						log.G.Error(err)
 						return nil

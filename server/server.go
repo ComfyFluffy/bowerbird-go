@@ -35,7 +35,7 @@ func Serve(conf *config.Config, db *mongo.Database) error {
 	e.Use(middleware.GzipWithConfig(
 		middleware.GzipConfig{
 			Skipper: func(c echo.Context) bool {
-				return strings.HasPrefix(c.Request().URL.Path, "/media")
+				return strings.HasPrefix(c.Request().URL.Path, "/api/v1/local/")
 			},
 			Level: -1,
 		},
@@ -44,23 +44,29 @@ func Serve(conf *config.Config, db *mongo.Database) error {
 
 	e.Static("/", "../bowerbird-ui/build")
 
-	pxtr := &http.Transport{}
-	err := helper.SetTransportProxy(pxtr, conf.Pixiv.DownloaderProxy, conf.Network.GlobalProxy)
+	pdltr := &http.Transport{}
+	err := helper.SetTransportProxy(pdltr, conf.Pixiv.DownloaderProxy, conf.Network.GlobalProxy)
 	if err != nil {
 		return err
 	}
 	h := &handler{
 		db:             db,
 		conf:           conf,
-		clientPximg:    &http.Client{Transport: pxtr},
+		clientPximg:    &http.Client{Transport: pdltr},
 		parsedPixivDir: conf.Storage.ParsedPixiv(),
 	}
 	e.GET("/api", h.apiVersion)
+
+	e.GET("/api/v1/proxy/*", h.proxy)
+
 	e.Static("/api/v1/local/pixiv", conf.Storage.ParsedPixiv())
+
 	e.GET("/api/v1/media/by-id/:id", h.mediaByID)
+
 	e.POST("/api/v1/db/find/:collection", h.dbFind)
 	e.POST("/api/v1/db/aggregate/:collection", h.dbAggregate)
-	e.GET("/api/v1/proxy/*", h.proxy)
+
+	e.POST("/api/v1/user", h.user)
 
 	e.HTTPErrorHandler = errHandler
 	return e.Start(conf.Server.Address)

@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/WOo0W/bowerbird/cli/log"
+	"github.com/WOo0W/bowerbird/helper/orderedmap"
 	"github.com/WOo0W/bowerbird/model"
 	"github.com/WOo0W/go-pixiv/pixiv"
 	"go.mongodb.org/mongo-driver/bson"
@@ -101,7 +102,7 @@ func saveUserProfile(ru *pixiv.RespUserDetail, db *mongo.Database) error {
 			TwitterAccount: ru.Profile.TwitterAccount,
 			WebPage:        ru.Profile.Webpage,
 			Bio:            ru.User.Comment,
-			Workspace:      model.DD{},
+			Workspace:      orderedmap.O{},
 		}},
 	}
 

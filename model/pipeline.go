@@ -1,13 +1,13 @@
-package pixiv
+package model
 
 // generated with /scripts/mongo_pipeline.py
 
 var PipelinePostsAll = a{
-	d{
-		{Key: "$sort", Value: d{
-			{Key: "_id", Value: -1},
-		}},
-	},
+	// d{
+	// 	{Key: "$sort", Value: d{
+	// 		{Key: "_id", Value: -1},
+	// 	}},
+	// },
 	d{
 		{Key: "$lookup", Value: d{
 			{Key: "from", Value: "tags"},
@@ -21,14 +21,14 @@ var PipelinePostsAll = a{
 			{Key: "from", Value: "post_details"},
 			{Key: "localField", Value: "_id"},
 			{Key: "foreignField", Value: "postID"},
-			{Key: "as", Value: "latestPostDetail"},
+			{Key: "as", Value: "postDetail"},
 		}},
 	},
 	d{
 		{Key: "$set", Value: d{
-			{Key: "latestPostDetail", Value: d{
+			{Key: "postDetail", Value: d{
 				{Key: "$arrayElemAt", Value: a{
-					"$latestPostDetail",
+					"$postDetail",
 					-1,
 				}},
 			}},
@@ -73,28 +73,28 @@ var PipelinePostsAll = a{
 	d{
 		{Key: "$lookup", Value: d{
 			{Key: "from", Value: "media"},
-			{Key: "localField", Value: "latestPostDetail.mediaIDs"},
+			{Key: "localField", Value: "postDetail.mediaIDs"},
 			{Key: "foreignField", Value: "_id"},
-			{Key: "as", Value: "latestPostDetail.media"},
+			{Key: "as", Value: "postDetail.media"},
 		}},
 	},
 	d{
 		{Key: "$unset", Value: a{
 			"ownerID",
 			"tagIDs",
-			"latestPostDetail.postID",
+			"postDetail.postID",
 			"owner.avatarIDs",
-			"latestPostDetail.mediaIDs",
+			"postDetail.mediaIDs",
 		}},
 	},
 }
 
 var PipelineUsersAll = a{
-	d{
-		{Key: "$sort", Value: d{
-			{Key: "_id", Value: -1},
-		}},
-	},
+	// d{
+	// 	{Key: "$sort", Value: d{
+	// 		{Key: "_id", Value: -1},
+	// 	}},
+	// },
 	d{
 		{Key: "$lookup", Value: d{
 			{Key: "from", Value: "media"},

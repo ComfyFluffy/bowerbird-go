@@ -1,6 +1,9 @@
 package model
 
-import "go.mongodb.org/mongo-driver/bson/primitive"
+import (
+	"github.com/WOo0W/bowerbird/helper/orderedmap"
+	"go.mongodb.org/mongo-driver/bson/primitive"
+)
 
 // PixivUser extends User with Pixiv's user struct
 type PixivUser struct {
@@ -24,7 +27,7 @@ type PixivUserProfile struct {
 	TwitterAccount    string             `bson:"twitterAccount,omitempty" json:"twitterAccount,omitempty"`
 	WebPage           string             `bson:"webPage,omitempty" json:"webPage,omitempty"`
 	Bio               string             `bson:"bio,omitempty" json:"bio,omitempty"`
-	Workspace         DD                 `bson:"workspace,omitempty" json:"workspace,omitempty"`
+	Workspace         orderedmap.O       `bson:"workspace,omitempty" json:"workspace,omitempty"`
 	WorkspaceMediaID  primitive.ObjectID `bson:"workspaceMediaID,omitempty" json:"-"`
 	BackgroundMediaID primitive.ObjectID `bson:"backgroudMediaID,omitempty" json:"-"`
 }
