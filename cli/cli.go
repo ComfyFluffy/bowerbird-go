@@ -39,6 +39,41 @@ func New() *cli.App {
 		pixivdl  *downloader.Downloader
 	)
 
+	initPixiv := func() error {
+		pixivrhc = retryablehttp.NewClient()
+		pixivrhc.Backoff = helper.DefaultBackoff
+		pixivrhc.Logger = nil
+		pixivrhc.RequestLogHook = func(l retryablehttp.Logger, req *http.Request, tries int) {
+			log.G.Debug(fmt.Sprintf("pixiv http: %s %s tries: %d", req.Method, req.URL, tries))
+		}
+		tra := pixivrhc.HTTPClient.Transport.(*http.Transport)
+		err := helper.SetTransportProxy(tra, conf.Pixiv.APIProxy, conf.Network.GlobalProxy)
+		if err != nil {
+			return err
+		}
+		pixivapi = pixiv.NewWithClient(pixivrhc.StandardClient())
+		pixivapi.SetLanguage(conf.Pixiv.Language)
+
+		trd := &http.Transport{}
+		err = helper.SetTransportProxy(trd, conf.Pixiv.DownloaderProxy, conf.Network.GlobalProxy)
+		if err != nil {
+			return err
+		}
+		pixivdl = downloader.NewWithCliet(&http.Client{Transport: trd})
+
+		err = authPixiv(pixivapi, conf)
+		if err != nil {
+			return fmt.Errorf("pixiv: auth failed: %w", err)
+		}
+		log.G.Info(fmt.Sprintf("pixiv: logged as %s (%d)", pixivapi.AuthResponse.Response.User.Name, pixivapi.UserID))
+		conf.Pixiv.RefreshToken = pixivapi.RefreshToken
+		err = conf.Save()
+		if err != nil {
+			return fmt.Errorf("error saving config: %w", err)
+		}
+		return nil
+	}
+
 	return &cli.App{
 		Name:    "Bowerbird",
 		Usage:   "A toolset to manage your collection",
@@ -119,43 +154,6 @@ func New() *cli.App {
 						Usage:   "Limit how many items to download",
 					},
 				},
-				Before: func(c *cli.Context) error {
-					pixivrhc = retryablehttp.NewClient()
-					pixivrhc.Backoff = helper.DefaultBackoff
-					pixivrhc.Logger = nil
-					pixivrhc.RequestLogHook = func(l retryablehttp.Logger, req *http.Request, tries int) {
-						log.G.Debug(fmt.Sprintf("pixiv http: %s %s tries: %d", req.Method, req.URL, tries))
-					}
-					tra := pixivrhc.HTTPClient.Transport.(*http.Transport)
-					err := helper.SetTransportProxy(tra, conf.Pixiv.APIProxy, conf.Network.GlobalProxy)
-					if err != nil {
-						log.G.Error(err)
-						return nil
-					}
-					pixivapi = pixiv.NewWithClient(pixivrhc.StandardClient())
-					pixivapi.SetLanguage(conf.Pixiv.Language)
-
-					trd := &http.Transport{}
-					err = helper.SetTransportProxy(trd, conf.Pixiv.DownloaderProxy, conf.Network.GlobalProxy)
-					if err != nil {
-						log.G.Error(err)
-						return nil
-					}
-					pixivdl = downloader.NewWithCliet(&http.Client{Transport: trd})
-
-					err = authPixiv(pixivapi, conf)
-					if err != nil {
-						log.G.Error("pixiv: auth failed:", err)
-						return nil
-					}
-					log.G.Info(fmt.Sprintf("pixiv: logged as %s (%d)", pixivapi.AuthResponse.Response.User.Name, pixivapi.UserID))
-					conf.Pixiv.RefreshToken = pixivapi.RefreshToken
-					err = conf.Save()
-					if err != nil {
-						log.G.Error("error saving config:", err)
-					}
-					return nil
-				},
 				Subcommands: []*cli.Command{
 					{
 						Name:  "update-users",
@@ -167,11 +165,16 @@ func New() *cli.App {
 							},
 						},
 						Action: func(c *cli.Context) error {
+							err := initPixiv()
+							if err != nil {
+								log.G.Error(err)
+								return nil
+							}
 							if noDB {
 								log.G.Error("--no-db flag is true. cannot update.")
 								return nil
 							}
-							err := pixivh.UpdateAllUsers(db, pixivapi, c.Bool("all"))
+							err = pixivh.UpdateAllUsers(db, pixivapi, c.Bool("all"))
 							if err != nil {
 								log.G.Error(err)
 							}
@@ -193,6 +196,11 @@ func New() *cli.App {
 						},
 
 						Action: func(c *cli.Context) error {
+							err := initPixiv()
+							if err != nil {
+								log.G.Error(err)
+								return nil
+							}
 							var restrict pixiv.Restrict
 							if c.Bool("private") {
 								restrict = pixiv.RPrivate
@@ -229,6 +237,11 @@ func New() *cli.App {
 						Name:  "uploads",
 						Usage: "Get user's uploaded works",
 						Action: func(c *cli.Context) error {
+							err := initPixiv()
+							if err != nil {
+								log.G.Error(err)
+								return nil
+							}
 							var uid int
 							if c.IsSet("user") {
 								uid = c.Int("user")
