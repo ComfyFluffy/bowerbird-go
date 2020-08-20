@@ -18,6 +18,7 @@ import (
 	"go.mongodb.org/mongo-driver/mongo"
 )
 
+// regexp matchers for url of i.pximg.net
 var (
 	PximgDate = regexp.MustCompile(
 		// 2018/11/06/00/25/50
@@ -119,6 +120,8 @@ func updateUsers(db *mongo.Database, api *pixiv.AppAPI, usersToUpdate []int) {
 	}
 }
 
+// ProcessIllusts processes the pixiv illusts until
+// the NextURL is empty or the limit reached
 func ProcessIllusts(ri *pixiv.RespIllusts, limit int, dl *downloader.Downloader, api *pixiv.AppAPI, basePath string, tags []string, tagsMatchAll bool, db *mongo.Database, dbOnly bool) {
 	i := 0
 	idb := 0

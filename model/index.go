@@ -7,6 +7,7 @@ import (
 	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
+// EnsureIndexes creates the MongoDB indexes.
 func EnsureIndexes(ctx context.Context, db *mongo.Database) error {
 	cu := db.Collection(CollectionUser)
 	cud := db.Collection(CollectionUserDetail)

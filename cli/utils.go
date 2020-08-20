@@ -47,11 +47,11 @@ func loadConfigFile(conf *config.Config, path string) error {
 	conf.Path = path
 	err = conf.Save()
 	if err != nil {
-		log.G.Warn("Can not save config file:", path, "\n", err)
+		log.G.Warn("can not save config file:", path, "\n", err)
 	}
 
-	log.G.ConsoleLevel = log.SwitchLevel(conf.Log.ConsoleLevel)
-	log.G.FileLevel = log.SwitchLevel(conf.Log.FileLevel)
+	log.G.ConsoleLevel = log.ParseLevel(conf.Log.ConsoleLevel)
+	log.G.FileLevel = log.ParseLevel(conf.Log.FileLevel)
 	return nil
 }
 
@@ -66,6 +66,9 @@ func getUserPass() (username, password string) {
 	return username, password
 }
 
+// authPixiv tries to auth to pixiv.
+// If RefreshToken is empty, it will ask for
+// pixiv username and password.
 func authPixiv(api *pixiv.AppAPI, c *config.Config) error {
 	if c.Pixiv.RefreshToken == "" {
 		u, p := getUserPass()
@@ -91,6 +94,7 @@ func authPixiv(api *pixiv.AppAPI, c *config.Config) error {
 	return nil
 }
 
+// downloaderUILoop displays current download speed
 func downloaderUILoop(dl *downloader.Downloader) {
 	ticker := time.NewTicker(1 * time.Second)
 	defer ticker.Stop()
@@ -107,6 +111,7 @@ func downloaderUILoop(dl *downloader.Downloader) {
 }
 
 func connectToDB(ctx context.Context, uri string) (*mongo.Client, error) {
+	log.G.Info("connecting to database")
 	client, err := mongo.Connect(ctx, options.Client().ApplyURI(uri))
 	if err != nil {
 		return client, err
@@ -115,6 +120,5 @@ func connectToDB(ctx context.Context, uri string) (*mongo.Client, error) {
 	if err != nil {
 		return client, err
 	}
-	log.G.Info("connected to database")
 	return client, nil
 }

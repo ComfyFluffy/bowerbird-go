@@ -63,8 +63,8 @@ func Serve(conf *config.Config, db *mongo.Database) error {
 
 	e.GET("/api/v1/media/by-id/:id", h.mediaByID)
 
-	// e.POST("/api/v1/db/find/:collection", h.dbFind)
-	// e.POST("/api/v1/db/aggregate/:collection", h.dbAggregate)
+	e.POST("/api/v1/db/find/:collection", h.dbFind)
+	e.POST("/api/v1/db/aggregate/:collection", h.dbAggregate)
 
 	e.POST("/api/v1/user/find", h.findUser)
 	e.POST("/api/v1/post/find", h.findPost)

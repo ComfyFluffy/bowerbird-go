@@ -4,15 +4,12 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"io/ioutil"
 	"os"
 	"path/filepath"
-	"time"
-
-	"github.com/WOo0W/bowerbird/cli/log"
 )
 
+// The version of config and app
 const (
 	Version   = "0.1.0"
 	UIVersion = ""
@@ -30,7 +27,7 @@ func join(root, sub string) string {
 	return filepath.Join(root, sub)
 }
 
-//Config of this program
+//Config defines the config stuct of this app.
 type Config struct {
 	Log      LogConfig
 	Server   ServerConfig
@@ -46,28 +43,37 @@ type Config struct {
 	buf     *bytes.Buffer
 }
 
+// LogConfig defines the Log field in Config.
 type LogConfig struct {
 	ConsoleLevel string
 	FileLevel    string
 	File         string
 }
+
+// StorageConfig defines the Storage field in Config
 type StorageConfig struct {
 	RootDir string
 	Pixiv   string
 }
 
+// ParsedPixiv returns the Storage.Pixiv if it is absolute path,
+// otherwise it returns "Storage.RootDir/Storage.Pixiv".
 func (s *StorageConfig) ParsedPixiv() string {
 	return join(s.RootDir, s.Pixiv)
 }
 
+// ServerConfig defines the Server field in Config.
 type ServerConfig struct {
 	Address string
 }
+
+// DatabaseConfig defines the Database field in Config.
 type DatabaseConfig struct {
 	MongoURI     string
 	DatabaseName string
 }
 
+// PixivConfig defines the Pixiv field in Config.
 type PixivConfig struct {
 	RefreshToken    string
 	Language        string
@@ -75,27 +81,12 @@ type PixivConfig struct {
 	DownloaderProxy string
 }
 
+// NetworkConfig defines the Network field in Config.
 type NetworkConfig struct {
-	GlobalProxy                string
-	RetryTimesMax              int
-	RetryWaitMax, RetryWaitMin string
+	GlobalProxy string
 }
 
-func (nc *NetworkConfig) RetryWaitParsed() (max, min time.Duration) {
-	var err error
-	max, err = time.ParseDuration(nc.RetryWaitMax)
-	if err != nil {
-		max = 30 * time.Second
-		log.G.Warn(fmt.Sprintf("Can not parse RetryWaitMax of NetworkConfig: %s, use default: 30s", nc.RetryWaitMax))
-	}
-	min, err = time.ParseDuration(nc.RetryWaitMin)
-	if err != nil {
-		min = 1 * time.Second
-		log.G.Warn(fmt.Sprintf("Can not parse RetryWaitMin of NetworkConfig: %s, use default: 1s", nc.RetryWaitMin))
-	}
-	return max, min
-}
-
+// Load loads the Config from the given json bytes.
 func (c *Config) Load(b []byte) error {
 	err := json.Unmarshal(b, c)
 	if err != nil {
@@ -107,12 +98,14 @@ func (c *Config) Load(b []byte) error {
 	return nil
 }
 
+// Marshal returns the json bytes of Config.
 func (c *Config) Marshal() ([]byte, error) {
 	defer c.buf.Reset()
 	err := c.encoder.Encode(c)
 	return c.buf.Bytes(), err
 }
 
+// Save writes the json bytes of Config into the c.Path
 func (c *Config) Save() error {
 	if c.Path == "" {
 		return errors.New("config save: no file specified")
@@ -124,14 +117,15 @@ func (c *Config) Save() error {
 	return ioutil.WriteFile(c.Path, b, 0644)
 }
 
+// New builds a *Config with default values.
 func New() *Config {
-	var buf bytes.Buffer
-	m := json.NewEncoder(&buf)
+	buf := &bytes.Buffer{}
+	m := json.NewEncoder(buf)
 	m.SetIndent("", "    ")
 	m.SetEscapeHTML(false)
 	return &Config{
 		encoder: m,
-		buf:     &buf,
+		buf:     buf,
 		Log: LogConfig{
 			File:         "log/bowerbird.log",
 			ConsoleLevel: "INFO",
@@ -145,14 +139,9 @@ func New() *Config {
 			Pixiv:   "pixiv",
 		},
 		Database: DatabaseConfig{
-			// https://docs.mongodb.com/manual/reference/connection-string/
+			// MongoURI referennce: https://docs.mongodb.com/manual/reference/connection-string/
 			MongoURI:     "mongodb://localhost",
 			DatabaseName: "bowerbird",
-		},
-		Network: NetworkConfig{
-			RetryWaitMax:  "10s",
-			RetryWaitMin:  "1s",
-			RetryTimesMax: 5,
 		},
 		Pixiv: PixivConfig{
 			Language: "en",

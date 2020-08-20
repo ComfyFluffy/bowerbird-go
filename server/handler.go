@@ -1,11 +1,10 @@
 package server
 
 import (
-	"crypto/sha1"
-	"encoding/hex"
+	"bytes"
+	"fmt"
 	"image"
 	"image/jpeg"
-	"strconv"
 
 	// import image decoders
 	_ "image/gif"
@@ -22,6 +21,7 @@ import (
 	"strings"
 
 	"github.com/WOo0W/bowerbird/config"
+	"github.com/WOo0W/bowerbird/helper"
 	"github.com/WOo0W/bowerbird/helper/orderedmap"
 	"github.com/WOo0W/bowerbird/model"
 	"github.com/labstack/echo/v4"
@@ -45,26 +45,26 @@ type handler struct {
 	findPostPipeline a
 }
 
-func resultFromCollectionName(collection string) (interface{}, error) {
-	var a interface{}
-	switch collection {
-	case "media":
-		a = &[]model.Media{}
-	case "posts":
-		a = &[]model.Post{}
-	case "post_details":
-		a = &[]model.PostDetail{}
-	case "users":
-		a = &[]model.User{}
-	case "user_details":
-		a = &[]model.UserDetail{}
-	case "tags":
-		a = &[]model.Tag{}
-	default:
-		return nil, echo.NewHTTPError(http.StatusBadRequest, "unknown collection: "+collection)
-	}
-	return a, nil
-}
+// func resultFromCollectionName(collection string) (interface{}, error) {
+// 	var a interface{}
+// 	switch collection {
+// 	case "media":
+// 		a = &[]model.Media{}
+// 	case "posts":
+// 		a = &[]model.Post{}
+// 	case "post_details":
+// 		a = &[]model.PostDetail{}
+// 	case "users":
+// 		a = &[]model.User{}
+// 	case "user_details":
+// 		a = &[]model.UserDetail{}
+// 	case "tags":
+// 		a = &[]model.Tag{}
+// 	default:
+// 		return nil, echo.NewHTTPError(http.StatusBadRequest, "unknown collection: "+collection)
+// 	}
+// 	return a, nil
+// }
 
 func (h *handler) apiVersion(c echo.Context) error {
 	return c.String(200, "bowerbird "+config.Version)
@@ -83,40 +83,29 @@ func openImage(fullPath string) (image.Image, error) {
 	return imaging.Decode(f)
 }
 
-func sendTempThumbnail(c echo.Context, fullPath, name string, width, height int) error {
-	tempd := filepath.Join(os.TempDir(), "bowerbird")
-	os.MkdirAll(tempd, 0755)
-
-	s := sha1.Sum([]byte(name + strconv.Itoa(width) + "_" + strconv.Itoa(height)))
-	tempn := hex.EncodeToString(s[:])
-	tempf := filepath.Join(tempd, tempn)
-
-	if _, err := os.Stat(tempf); err == nil {
-		return c.File(tempf)
-	}
-
-	img, err := openImage(fullPath)
+func sendTempThumbnail(c echo.Context, fullPath string, width, height int) error {
+	fi, err := os.Stat(fullPath)
 	if err != nil {
-		return err
+		return echo.NotFoundHandler(c)
 	}
-	var w io.Writer
-	tempfp := tempf + "_"
-	f, err := os.OpenFile(tempfp, os.O_WRONLY|os.O_TRUNC|os.O_CREATE, 0644)
-	if err == nil {
-		w = io.MultiWriter(f, c.Response())
-		defer f.Close()
-	} else {
-		w = c.Response()
-	}
-	img = imaging.Fill(img, width, height, imaging.Center, imaging.Lanczos)
+
 	c.Response().Header()["Content-Type"] = []string{"image/jpeg"}
-	err = jpeg.Encode(w, img, &jpeg.Options{
-		Quality: 75,
+
+	// To take advantages of http.ServeContent we builds a LazyReadSeeker
+	r := helper.NewLazyReadSeeker(func() (io.ReadSeeker, error) {
+		c.Logger().Warn(fmt.Sprintf("making thumbnail for %s with size %dx%d", fullPath, width, height))
+		img, err := openImage(fullPath)
+		if err != nil {
+			return nil, err
+		}
+		b := &bytes.Buffer{}
+		img = imaging.Fill(img, width, height, imaging.Center, imaging.Lanczos)
+		err = jpeg.Encode(b, img, &jpeg.Options{
+			Quality: 80,
+		})
+		return bytes.NewReader(b.Bytes()), err
 	})
-	f.Close()
-	if err == nil {
-		os.Rename(tempfp, tempf)
-	}
+	http.ServeContent(c.Response(), c.Request(), "", fi.ModTime(), r)
 	return err
 }
 
@@ -134,10 +123,9 @@ func (h *handler) localMediaPixiv(c echo.Context) error {
 	if err != nil {
 		return err
 	}
-	p = path.Clean("/" + p) // "/"+ for security
-	fullPath := filepath.Join(h.parsedPixivDir, p)
+	fullPath := filepath.Join(h.parsedPixivDir, path.Clean("/"+p)) // "/"+ for security
 	if q.Width != 0 && q.Height != 0 {
-		return sendTempThumbnail(c, fullPath, p, q.Width, q.Height)
+		return sendTempThumbnail(c, fullPath, q.Width, q.Height)
 	}
 	return c.File(fullPath)
 }
@@ -152,10 +140,6 @@ type dbFindOptions struct {
 func (h *handler) dbFind(c echo.Context) error {
 	ctx := c.Request().Context()
 	collection := c.Param("collection")
-	a, err := resultFromCollectionName(collection)
-	if err != nil {
-		return err
-	}
 
 	fo := &dbFindOptions{}
 	if err := c.Bind(fo); err != nil {
@@ -172,14 +156,18 @@ func (h *handler) dbFind(c echo.Context) error {
 	if err != nil {
 		return err
 	}
-	if err := r.All(ctx, a); err != nil {
-		return err
+	a := []bson.Raw{}
+	for r.Next(ctx) {
+		a = append(a, r.Current)
+	}
+	if r.Err() != nil {
+		return r.Err()
 	}
 	return c.JSON(http.StatusOK, a)
 }
 
 type dbAggregateOptions struct {
-	Pipeline bson.Raw `json:"pipeline"`
+	Pipeline []bson.Raw `json:"pipeline"`
 }
 
 func (h *handler) dbAggregate(c echo.Context) error {
@@ -192,10 +180,12 @@ func (h *handler) dbAggregate(c echo.Context) error {
 	if err != nil {
 		return err
 	}
-	a := &[]map[string]interface{}{}
-	err = r.All(ctx, a)
-	if err != nil {
-		return err
+	a := []bson.Raw{}
+	for r.Next(ctx) {
+		a = append(a, r.Current)
+	}
+	if r.Err() != nil {
+		return r.Err()
 	}
 	return c.JSON(http.StatusOK, a)
 }
@@ -230,7 +220,7 @@ func (h *handler) proxy(c echo.Context) error {
 		client = h.clientPximg
 		reqProxy.Header["Referer"] = []string{"https://app-api.pixiv.net/"}
 	default:
-		return echo.NewHTTPError(400, "unsupported host "+urlp.Host)
+		return echo.NewHTTPError(http.StatusBadRequest, "unsupported host "+urlp.Host)
 	}
 
 	reqProxy.URL.RawQuery = req.URL.RawQuery

@@ -24,7 +24,8 @@ const (
 	PRINT
 )
 
-func SwitchLevel(s string) Level {
+// ParseLevel parses log level from string.
+func ParseLevel(s string) Level {
 	switch strings.ToLower(s) {
 	case "info":
 		return INFO
@@ -47,7 +48,6 @@ const (
 var (
 	cDebug = c.SHiBlue("DEBUG")
 	cInfo  = c.SHiGreen("INFO")
-	// cNotice = c.SHiGreen("NOTICE")
 	cWarn  = c.SHiYellow("WARN")
 	cError = c.SHiRed("ERROR")
 )
@@ -57,7 +57,7 @@ func timeNowString() string {
 	return t.Format(timeFormat)
 }
 
-// Logger defiles the logging output and level
+// Logger defimes the logging output and level
 type Logger struct {
 	ConsoleOutput, FileOutput io.Writer
 	ConsoleLevel, FileLevel   Level
@@ -66,7 +66,7 @@ type Logger struct {
 	// LineRefreshRate           time.Duration
 }
 
-// New return's a new Logger printing colored messages to Stderr
+// New returns a new Logger printing colored messages to Stderr
 func New() *Logger {
 	return &Logger{
 		ConsoleOutput: c.Stderr,
@@ -82,7 +82,7 @@ func New() *Logger {
 // G defines the default global Logger
 var G = New()
 
-// Debug logs debug level messages
+// Debug logs DEBUG level messages
 func (l *Logger) Debug(a ...interface{}) {
 	var (
 		times   string
@@ -100,7 +100,7 @@ func (l *Logger) Debug(a ...interface{}) {
 	}
 }
 
-// Info logs info level messages
+// Info logs INFO level messages
 func (l *Logger) Info(a ...interface{}) {
 	var (
 		times   string
@@ -118,7 +118,7 @@ func (l *Logger) Info(a ...interface{}) {
 	}
 }
 
-// Warn logs warn level messages
+// Warn logs WARM level messages
 func (l *Logger) Warn(a ...interface{}) {
 	var (
 		times   string
@@ -136,7 +136,7 @@ func (l *Logger) Warn(a ...interface{}) {
 	}
 }
 
-// Error logs error level messages
+// Error logs ERROR level messages
 func (l *Logger) Error(a ...interface{}) {
 	var (
 		times   string
@@ -169,7 +169,7 @@ func (l *Logger) Line(message string) {
 	}
 }
 
-// Print logs print level messages without modified
+// Print logs PRINT level messages without modified
 func (l *Logger) Print(a ...interface{}) {
 	if l.ConsoleLevel <= PRINT {
 		fmt.Fprint(l.ConsoleOutput, a...)

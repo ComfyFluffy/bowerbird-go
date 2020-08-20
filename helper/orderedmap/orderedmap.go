@@ -22,7 +22,7 @@ func (o O) Less(i, j int) bool { return o[i].Key < o[j].Key }
 
 // MarshalJSON marshals O into json bytes.
 func (o O) MarshalJSON() ([]byte, error) {
-	var buf bytes.Buffer
+	buf := &bytes.Buffer{}
 
 	buf.WriteRune('{')
 	for i, e := range o {

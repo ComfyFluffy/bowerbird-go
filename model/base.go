@@ -12,7 +12,7 @@ type (
 	d = bson.D
 )
 
-// User defines the person
+// User defines the creator of the content.
 type User struct {
 	ID        primitive.ObjectID `bson:"_id,omitempty" json:"id"`
 	Rating    int                `bson:"rating,omitempty" json:"rating,omitempty"`
@@ -30,13 +30,18 @@ type User struct {
 	UserDetail *UserDetail `bson:"userDetail,omitempty" json:"userDetail,omitempty"`
 }
 
-const CollectionUser = "users"
+// collection names in MongoDB
+const (
+	CollectionUser       = "users"
+	CollectionUserDetail = "user_details"
+	CollectionPost       = "posts"
+	CollectionPostDetail = "post_details"
+	CollectionCollection = "collection"
+	CollectionTag        = "tags"
+	CollectionMedia      = "media"
+)
 
-// DBCollection returns the name of mongodb collection
-// func (User) DBCollection() string {
-// 	return "users"
-// }
-
+// ExtUser extends the User.
 type ExtUser struct {
 	Pixiv *PixivUser `bson:"pixiv,omitempty" json:"pixiv,omitempty"`
 }
@@ -49,9 +54,7 @@ type UserDetail struct {
 	Extension *ExtUserDetail     `bson:"extension,omitempty" json:"extension"`
 }
 
-// CollectionUserDetail defines the collection name in MongoDB
-const CollectionUserDetail = "user_details"
-
+// ExtUserDetail extends the UserDetail.
 type ExtUserDetail struct {
 	Pixiv *PixivUserProfile `bson:"pixiv,omitempty" json:"pixiv,omitempty"`
 }
@@ -77,9 +80,7 @@ type Post struct {
 	Owner      *User       `bson:"owner,omitempty" json:"owner,omitempty"`
 }
 
-// DBCollection returns the name of mongodb collection
-const CollectionPost = "posts"
-
+// ExtPost extends the Post.
 type ExtPost struct {
 	Pixiv *PixivPost `bson:"pixiv,omitempty" json:"pixiv,omitempty"`
 }
@@ -94,11 +95,10 @@ type PostDetail struct {
 	MediaIDs []primitive.ObjectID `bson:"mediaIDs,omitempty" json:"-"`
 }
 
+// ExtPostDetail extends the PostDetail
 type ExtPostDetail struct {
 	Pixiv *PixivIllustDetail `bson:"pixiv,omitempty" json:"pixiv,omitempty"`
 }
-
-const CollectionPostDetail = "post_details"
 
 // Collection defines the collection of Post
 type Collection struct {
@@ -113,8 +113,7 @@ type Collection struct {
 	Posts []Post `bson:"-" json:"posts"`
 }
 
-const CollectionCollection = "collection"
-
+// ExtCollection extends the Collection.
 type ExtCollection struct{}
 
 // Tag defines the tag of the User, Post and Collection
@@ -124,18 +123,10 @@ type Tag struct {
 	Source string             `bson:"source,omitempty" json:"source,omitempty"`
 }
 
-const CollectionTag = "tags"
-
-// type TagAlias struct {
-// 	Text     string `bson:"text,omitempty" json:"text,omitempty"`
-// 	Language string `bson:"language,omitempty" json:"language,omitempty"`
-// 	Source   string `bson:"source,omitempty" json:"source,omitempty"`
-// }
-
-const CollectionMedia = "media"
-
+// MediaType defines the website and type of the media.
 type MediaType string
 
+// media types
 const (
 	MediaPixivAvatar            MediaType = "pixiv-avatar"
 	MediaPixivWorkspaceImage              = "pixiv-workspace-image"
@@ -157,6 +148,7 @@ type Media struct {
 	Extension *ExtMedia          `bson:"extension,omitempty" json:"extension"`
 }
 
+// ExtMedia extends the media.
 type ExtMedia struct {
 	Pixiv *PixivMedia `bson:"pixiv,omitempty" json:"pixiv,omitempty"`
 }

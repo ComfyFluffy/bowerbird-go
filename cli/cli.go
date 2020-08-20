@@ -21,7 +21,7 @@ import (
 	"github.com/urfave/cli/v2"
 )
 
-//New returns an APP
+//New build a new bowerbird cli app
 func New() *cli.App {
 	conf := config.New()
 	configFile := ""
@@ -68,8 +68,8 @@ func New() *cli.App {
 				return nil
 			}
 
-			log.G.ConsoleLevel = log.SwitchLevel(conf.Log.ConsoleLevel)
-			log.G.FileLevel = log.SwitchLevel(conf.Log.FileLevel)
+			log.G.ConsoleLevel = log.ParseLevel(conf.Log.ConsoleLevel)
+			log.G.FileLevel = log.ParseLevel(conf.Log.FileLevel)
 
 			if !noDB {
 				ctx := context.Background()
@@ -152,7 +152,7 @@ func New() *cli.App {
 					conf.Pixiv.RefreshToken = pixivapi.RefreshToken
 					err = conf.Save()
 					if err != nil {
-						log.G.Error("saving config:", err)
+						log.G.Error("error saving config:", err)
 					}
 					return nil
 				},
@@ -163,7 +163,7 @@ func New() *cli.App {
 						Flags: []cli.Flag{
 							&cli.BoolFlag{
 								Name:  "all",
-								Usage: "Update all users despite modified date",
+								Usage: "Update all users in database despite modified date",
 							},
 						},
 						Action: func(c *cli.Context) error {

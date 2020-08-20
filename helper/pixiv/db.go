@@ -279,17 +279,12 @@ func saveIllusts(ils []*pixiv.Illust, db *mongo.Database, usersToUpdate map[int]
 			return err
 		}
 	}
-
-	// r, err := cp.Find(ctx, D{{"source", "pixiv"}, {"sourceID", D{{"$in", ids}}}}, options.Find().SetProjection(D{{"_id", 1, ""}}))
-	// for r.Next(ctx) {
-	// 	r.Current.Lookup("_id").ObjectID()
-	// }
-	// if err != nil {
-	// 	return err
-	// }
 	return nil
 }
 
+// UpdateAllUsers updates the pixiv user in database.
+// If forceAll is true it updates all pixiv users,
+// otherwise it updates the users whose lastModified is 240h ago
 func UpdateAllUsers(db *mongo.Database, api *pixiv.AppAPI, forceAll bool) error {
 	ctx := context.Background()
 	cu := db.Collection("users")

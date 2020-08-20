@@ -15,15 +15,12 @@ import (
 	"github.com/WOo0W/bowerbird/helper"
 )
 
-type taskStatus int
+type taskState int
 
-//different status of a task
+// States of Task
 const (
-	//Pending
-	Pending taskStatus = iota
-	//Running
+	Pending taskState = iota
 	Running
-	//Finished
 	Finished
 	Paused
 	Canceled
@@ -31,31 +28,21 @@ const (
 )
 
 const (
-	defaultRetryMax     = 30               //the default maximum number of retries
-	defaultRetryWaitMin = 1 * time.Second  //the default minimum retry wait time
-	defaultRetryWaitMax = 60 * time.Second //the default maximum retry wait time
+	defaultRetryMax     = 30
+	defaultRetryWaitMin = 1 * time.Second
+	defaultRetryWaitMax = 60 * time.Second
 )
 
-//filenameFromPath get the name of the file from a path string
-func filenameFromPath(path string, windowsSafe bool) string {
-	b := filepath.Base(path)
-	path = replacerAll.Replace(path)
-	if windowsSafe {
-		path = replacerOnWindows.Replace(path)
-	}
-	return b
-}
-
-//Backoff returns the wait time of a function
+// Backoff calculates time to wait for the next retry.
 type Backoff func(min, max time.Duration, attemptNum int, resp *http.Response) time.Duration
 
-//Task stores information of a download task
+// Task stores a http download task, witch will be processed by Downloader
 type Task struct {
-	bytesNow int64
+	bytesNow int64 // bytesNow saves the downloaded bytes in this second.
 
 	BytesLastSec int64
 	Err          error
-	Status       taskStatus
+	Status       taskState
 	Request      *http.Request
 	LocalPath    string
 	Overwrite    bool
@@ -64,6 +51,7 @@ type Task struct {
 }
 
 func (t *Task) copy(dst io.Writer, src io.Reader, bytesChan chan int64) (written int64, err error) {
+	// set the t.bytesNow to t.BytesLastSec and clear it every second
 	bytesTicker := time.NewTicker(1 * time.Second)
 	defer func() {
 		bytesTicker.Stop()
@@ -87,6 +75,7 @@ func (t *Task) copy(dst io.Writer, src io.Reader, bytesChan chan int64) (written
 					t.bytesNow = 0
 				default:
 					t.bytesNow += n
+					// psuh n to global speed calculating goroutine
 					bytesChan <- n
 				}
 			}
@@ -109,37 +98,28 @@ func (t *Task) copy(dst io.Writer, src io.Reader, bytesChan chan int64) (written
 	return written, err
 }
 
-//The core of downloader
+// Downloader processes the added tasks and save them to disk.
 type Downloader struct {
 	runningWorkers    int
 	stopAll           chan struct{}
 	globleBytesTicker *time.Ticker
 	bytesChan         chan int64
 	bytesNow,
-	//bytes downloaded in the last second
+	// bytes downloaded in the last second
 	BytesLastSec int64
-	//logger of the downloader
 	Logger *log.Logger
 
-	in chan *Task
-	//tasks that are to be downloaded
+	in    chan *Task
 	Tasks []*Task
-	//A finishing indicator
 
-	wg   sync.WaitGroup
-	once sync.Once
-	//http client for this downloader
-	Client *http.Client
-	//max number of retries
-	TriesMax int
-	//minimum wait time of retries
+	wg           sync.WaitGroup
+	once         sync.Once
+	Client       *http.Client
+	TriesMax     int
 	RetryWaitMin time.Duration
-	//maximum wait time of retries
 	RetryWaitMax time.Duration
-	//backoff function for retries
-	Backoff Backoff
-	//maximum threads for a downloader task
-	MaxWorkers int
+	Backoff      Backoff
+	MaxWorkers   int
 }
 
 func (d *Downloader) worker() {
@@ -155,7 +135,7 @@ func (d *Downloader) worker() {
 	}
 }
 
-//Start method activates the downloader object
+// Start runs background goroutines of the downloader.
 func (d *Downloader) Start() {
 	d.once.Do(func() {
 		d.Logger.Debug(fmt.Sprintf("starting downloader"))
@@ -166,6 +146,7 @@ func (d *Downloader) Start() {
 			for {
 				select {
 				case b := <-d.bytesChan:
+					// calculate the global donwload speed
 					d.bytesNow += b
 				case <-d.globleBytesTicker.C:
 					d.BytesLastSec = d.bytesNow
@@ -186,28 +167,15 @@ func (d *Downloader) Start() {
 	})
 }
 
-//Stop terminates the downloader object
+// Stop terminates background goroutines and tickers.
 func (d *Downloader) Stop() {
 	d.Logger.Debug("Stopping downloader")
 	close(d.stopAll)
 	d.globleBytesTicker.Stop()
 }
 
-// TODO: *Downloader.SetWorkers
-// func (d *Downloader) SetWorkers(workers int) {
-// 	if workers > d.runningWorkers {
-// 		for i := 0; i < workers - d.runningWorkers; i++ {
-// 			go d.worker()
-// 		}
-// 	} else {
-// 		for i := 0; i < d.runningWorkers - workers; i++ {
-
-// 		}
-// 	}
-// }
-//Add adds tasks to the downloader
+// Add pushes the task to the downloader queue.
 func (d *Downloader) Add(task *Task) {
-	// d.Logger.Debug("Adding *Task", task.Request.URL, task.LocalPath)
 	d.Tasks = append(d.Tasks, task)
 	d.wg.Add(1)
 	go func() {
@@ -215,17 +183,18 @@ func (d *Downloader) Add(task *Task) {
 	}()
 }
 
-//Wait suspends the downloader
+// Wait blocks until all tasks are done.
 func (d *Downloader) Wait() {
 	d.wg.Wait()
 }
 
-//NewWithDefaultClient returns a downloader with default client
+// NewWithDefaultClient calls NewWithCliet with an empty *http.Client.
 func NewWithDefaultClient() *Downloader {
 	return NewWithCliet(&http.Client{Transport: &http.Transport{}})
 }
 
-//NewWithCliet takes a http clinet and return a downloader with that client
+// NewWithCliet builds a new Downloader with default value
+// with the given *http.Client
 func NewWithCliet(c *http.Client) *Downloader {
 	return &Downloader{
 		TriesMax:     defaultRetryMax,
@@ -242,11 +211,10 @@ func NewWithCliet(c *http.Client) *Downloader {
 	}
 }
 
-//Download method does the task
+// Download starts downloading the given task.
 func (d *Downloader) Download(t *Task) {
 	if !t.Overwrite {
 		if _, err := os.Stat(t.LocalPath); !os.IsNotExist(err) {
-			// d.Logger.Debug("file already exists:", t.LocalPath)
 			t.Status = Finished
 			if t.AfterFinished != nil {
 				t.AfterFinished(t)
@@ -263,6 +231,7 @@ func (d *Downloader) Download(t *Task) {
 	}
 
 	t.Status = Running
+
 	ctx := t.Request.Context()
 	req := t.Request.Clone(ctx)
 	tries := 0
@@ -280,13 +249,15 @@ func (d *Downloader) Download(t *Task) {
 	if err != nil {
 		d.Logger.Error("stat file", part, err)
 	} else {
+		// get already downloaded bytes count
 		bytes = fi.Size()
 	}
 
 	for {
 		if bytes > 0 {
+			// skip the bytes already downloaded with Range header
 			req.Header["Range"] = []string{fmt.Sprintf("bytes=%d-", bytes)}
-			d.Logger.Debug("Trying again with req.Header[\"Range\"] modified:", bytes)
+			d.Logger.Debug("trying again with req.Header[\"Range\"] modified:", bytes)
 		}
 
 		tries++
@@ -335,6 +306,7 @@ func (d *Downloader) Download(t *Task) {
 			t.Status = Finished
 			d.Logger.Info("task finished:", filepath.Base(t.LocalPath))
 			if t.AfterFinished != nil {
+				// call AfterFinished hook
 				t.AfterFinished(t)
 			}
 			return

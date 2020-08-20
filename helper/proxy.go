@@ -9,6 +9,8 @@ import (
 	"golang.org/x/net/proxy"
 )
 
+// SetTransportProxy sets the proxy of the transport
+// to the first given non-empty url.
 func SetTransportProxy(tr *http.Transport, uris ...string) error {
 	var uri string
 	for _, urir := range uris {
