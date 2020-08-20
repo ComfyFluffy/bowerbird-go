@@ -119,7 +119,8 @@ type Downloader struct {
 	//logger of the downloader
 	Logger *log.Logger
 
-	in chan *Task
+	notfull chan struct{}
+	in      chan *Task
 	//tasks that are to be downloaded
 	Tasks []*Task
 	//A finishing indicator
@@ -149,6 +150,9 @@ func (d *Downloader) worker() {
 		case t := <-d.in:
 			d.Download(t)
 			d.wg.Done()
+			if len(d.notfull) == 0 {
+				d.notfull <- struct{}{}
+			}
 			// d.out <- t
 		}
 	}
@@ -157,6 +161,7 @@ func (d *Downloader) worker() {
 //Start method activates the downloader object
 func (d *Downloader) Start() {
 	d.once.Do(func() {
+		d.notfull <- struct{}{}
 		d.Logger.Debug(fmt.Sprintf("starting downloader"))
 
 		d.globleBytesTicker = time.NewTicker(1 * time.Second)
@@ -209,8 +214,16 @@ func (d *Downloader) Add(task *Task) {
 	// d.Logger.Debug("Adding *Task", task.Request.URL, task.LocalPath)
 	d.Tasks = append(d.Tasks, task)
 	d.wg.Add(1)
+
 	go func() {
-		d.in <- task
+		select {
+		case <-d.notfull:
+			if len(d.in) < 8-1 {
+				d.notfull <- struct{}{}
+			}
+			d.in <- task
+		}
+
 	}()
 }
 
@@ -233,17 +246,20 @@ func NewWithCliet(c *http.Client) *Downloader {
 		Backoff:      helper.DefaultBackoff,
 		Client:       c,
 		Logger:       log.G,
-		in:           make(chan *Task, 65535),
+		in:           make(chan *Task, 8),
 		bytesChan:    make(chan int64),
 		stopAll:      make(chan struct{}),
 		Done:         make(chan int),
 		Tasks:        []*Task{},
-		MaxWorkers:   2,
+		MaxWorkers:   8,
+		notfull:      make(chan struct{}, 1),
 	}
 }
 
 //Download method does the task
 func (d *Downloader) Download(t *Task) {
+	d.Client.Transport = &http.Transport{}
+	//skip finished tasks
 	if !t.Overwrite {
 		if _, err := os.Stat(t.LocalPath); !os.IsNotExist(err) {
 			// d.Logger.Debug("file already exists:", t.LocalPath)
@@ -257,21 +273,27 @@ func (d *Downloader) Download(t *Task) {
 		t.Status = Failed
 		t.Err = err
 	}
-
+	//set task status to running
 	t.Status = Running
 	ctx := t.Request.Context()
+	//get task request
 	req := t.Request.Clone(ctx)
+	//tries time
 	tries := 0
+	//?
 	bytes := int64(0)
+	//file name for partially downloaded files
 	part := t.LocalPath + ".part"
+	//make directory for the file
 	os.MkdirAll(filepath.Dir(t.LocalPath), 0755)
+	//open target file
 	f, err := os.OpenFile(part, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0644)
 	if err != nil {
 		onErr("open file", err)
 		return
 	}
 	defer f.Close()
-
+	//get file status
 	fi, err := f.Stat()
 	if err != nil {
 		d.Logger.Error("stat file", part, err)
@@ -280,6 +302,7 @@ func (d *Downloader) Download(t *Task) {
 	}
 
 	for {
+		//slices?
 		if bytes > 0 {
 			req.Header["Range"] = []string{fmt.Sprintf("bytes=%d-", bytes)}
 			d.Logger.Debug("Trying again with req.Header[\"Range\"] modified:", bytes)
@@ -290,6 +313,7 @@ func (d *Downloader) Download(t *Task) {
 			onErr("max tries", err)
 			return
 		}
+		//?
 		if tries > 1 {
 			select {
 			case <-ctx.Done():
@@ -298,13 +322,14 @@ func (d *Downloader) Download(t *Task) {
 			case <-time.After(d.Backoff(d.RetryWaitMin, d.RetryWaitMax, tries, nil)):
 			}
 		}
-
+		//send request from the task and get response
 		resp, err := d.Client.Do(req)
 		if err != nil {
 			d.Logger.Debug("Response error:", err, req.URL)
 			continue
 		}
 		if !(resp.StatusCode >= 200 && resp.StatusCode < 300) {
+			//deal with error response
 			r, err := ioutil.ReadAll(resp.Body)
 			resp.Body.Close()
 			if err != nil {
@@ -316,11 +341,11 @@ func (d *Downloader) Download(t *Task) {
 			onErr("http code not ok", err)
 			return
 		}
-
+		//get response content
 		written, err := t.copy(f, resp.Body, d.bytesChan)
 
 		resp.Body.Close()
-		if written == resp.ContentLength {
+		if written == resp.ContentLength { //do when finished
 			t.Status = Finished
 			d.Logger.Info("task finished:", filepath.Base(t.LocalPath))
 			f.Close()
@@ -331,6 +356,7 @@ func (d *Downloader) Download(t *Task) {
 			return
 		}
 		d.Logger.Debug(fmt.Sprintf("ContentLength doesn't match, bytes written: %d, url: %s, saving to: %s, error: %s", written, req.URL, t.LocalPath, err))
+
 		if err := f.Sync(); err != nil {
 			onErr("sync file", err)
 			return

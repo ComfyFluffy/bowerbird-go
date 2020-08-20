@@ -123,7 +123,7 @@ func New() *cli.App {
 					} else if conf.Network.GlobalProxy != "" {
 						setProxy(trd, conf.Network.GlobalProxy)
 					}
-					pixivdl = downloader.NewWithCliet(&http.Client{Transport: trd})
+					pixivdl = downloader.NewWithDefaultClient()
 
 					err := authPixiv(pixivapi, conf)
 					if err != nil {
