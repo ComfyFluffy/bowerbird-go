@@ -19,13 +19,10 @@ type taskStatus int
 
 //different status of a task
 const (
-	//Pending
 	Pending taskStatus = iota
-	//Running
-	Running
-	//Finished
-	Finished
 	Paused
+	Running
+	Finished
 	Canceled
 	Failed
 )
@@ -119,8 +116,9 @@ type Downloader struct {
 	//logger of the downloader
 	Logger *log.Logger
 
-	notfull chan struct{}
-	in      chan *Task
+	available chan struct{}
+	in        chan *Task
+	out       chan *Task
 	//tasks that are to be downloaded
 	Tasks []*Task
 	//A finishing indicator
@@ -143,16 +141,15 @@ type Downloader struct {
 }
 
 func (d *Downloader) worker() {
+	d.available <- struct{}{}
 	for {
 		select {
 		case <-d.stopAll:
 			return
-		case t := <-d.in:
+		case t := <-d.out:
 			d.Download(t)
 			d.wg.Done()
-			if len(d.notfull) == 0 {
-				d.notfull <- struct{}{}
-			}
+			d.available <- struct{}{}
 			// d.out <- t
 		}
 	}
@@ -161,7 +158,7 @@ func (d *Downloader) worker() {
 //Start method activates the downloader object
 func (d *Downloader) Start() {
 	d.once.Do(func() {
-		d.notfull <- struct{}{}
+
 		d.Logger.Debug(fmt.Sprintf("starting downloader"))
 
 		d.globleBytesTicker = time.NewTicker(1 * time.Second)
@@ -187,6 +184,40 @@ func (d *Downloader) Start() {
 			go d.worker()
 		}
 		d.runningWorkers = d.MaxWorkers
+		go func() {
+			for {
+				select {
+				case t := <-d.in:
+					d.Tasks = append(d.Tasks, t)
+					select {
+					case <-d.available:
+						for _, t := range d.Tasks {
+							if t.Status == Pending {
+								d.out <- t
+								break
+							}
+						}
+					default:
+
+					}
+				case <-d.stopAll:
+					return
+				default:
+					n := len(d.available)
+
+					for i := 0; i < n && len(d.Tasks) > 0; i++ {
+						for _, t := range d.Tasks {
+							if t.Status == Pending {
+								d.out <- t
+								_ = <-d.available
+							}
+						}
+					}
+					time.Sleep(time.Second / 2)
+				}
+
+			}
+		}()
 	})
 }
 
@@ -212,17 +243,11 @@ func (d *Downloader) Stop() {
 //Add adds tasks to the downloader
 func (d *Downloader) Add(task *Task) {
 	// d.Logger.Debug("Adding *Task", task.Request.URL, task.LocalPath)
-	d.Tasks = append(d.Tasks, task)
+
 	d.wg.Add(1)
 
 	go func() {
-		select {
-		case <-d.notfull:
-			if len(d.in) < 8-1 {
-				d.notfull <- struct{}{}
-			}
-			d.in <- task
-		}
+		d.in <- task
 
 	}()
 }
@@ -239,26 +264,28 @@ func NewWithDefaultClient() *Downloader {
 
 //NewWithCliet takes a http clinet and return a downloader with that client
 func NewWithCliet(c *http.Client) *Downloader {
-	return &Downloader{
+	r := &Downloader{
 		TriesMax:     defaultRetryMax,
 		RetryWaitMax: defaultRetryWaitMax,
 		RetryWaitMin: defaultRetryWaitMin,
 		Backoff:      helper.DefaultBackoff,
 		Client:       c,
 		Logger:       log.G,
-		in:           make(chan *Task, 8),
-		bytesChan:    make(chan int64),
-		stopAll:      make(chan struct{}),
-		Done:         make(chan int),
-		Tasks:        []*Task{},
-		MaxWorkers:   8,
-		notfull:      make(chan struct{}, 1),
+
+		bytesChan:  make(chan int64),
+		stopAll:    make(chan struct{}),
+		Done:       make(chan int),
+		Tasks:      []*Task{},
+		MaxWorkers: 8,
 	}
+	r.in = make(chan *Task, r.MaxWorkers)
+	r.out = make(chan *Task, r.MaxWorkers)
+	r.available = make(chan struct{}, r.MaxWorkers)
+	return r
 }
 
 //Download method does the task
 func (d *Downloader) Download(t *Task) {
-	d.Client.Transport = &http.Transport{}
 	//skip finished tasks
 	if !t.Overwrite {
 		if _, err := os.Stat(t.LocalPath); !os.IsNotExist(err) {
