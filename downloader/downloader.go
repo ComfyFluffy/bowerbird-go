@@ -122,12 +122,11 @@ type Downloader struct {
 	//tasks that are to be downloaded
 	Tasks []*Task
 	//A finishing indicator
-	Done chan int
-
-	wg   sync.WaitGroup
-	once sync.Once
-	//http client for this downloader
-	Client *http.Client
+	Done   chan int
+	Client []*http.Client
+	wg     sync.WaitGroup
+	once   sync.Once
+	//Worker *Worker
 	//max number of retries
 	TriesMax int
 	//minimum wait time of retries
@@ -140,17 +139,32 @@ type Downloader struct {
 	MaxWorkers int
 }
 
-func (d *Downloader) worker() {
+// Worker is what actually downloads content for its parent downloader
+/*
+type Worker struct {
+	free             bool
+	localBytesTicker *time.Ticker
+	bytesChan        chan int64
+	bytesNow,
+	//bytes downloaded in the last second
+	BytesLastSec int64
+	//Logger of each worker
+	Logger *log.Logger
+	Client *http.Client
+	once   sync.Once
+}
+*/
+func (d *Downloader) worker(i int) {
+
 	d.available <- struct{}{}
 	for {
 		select {
 		case <-d.stopAll:
 			return
 		case t := <-d.out:
-			d.Download(t)
+			d.Download(t, i)
 			d.wg.Done()
 			d.available <- struct{}{}
-			// d.out <- t
 		}
 	}
 }
@@ -181,39 +195,35 @@ func (d *Downloader) Start() {
 		}()
 
 		for i := 0; i < d.MaxWorkers; i++ {
-			go d.worker()
+			go d.worker(i)
 		}
 		d.runningWorkers = d.MaxWorkers
 		go func() {
+			buffer := []*Task{}
 			for {
 				select {
 				case t := <-d.in:
 					d.Tasks = append(d.Tasks, t)
 					select {
 					case <-d.available:
-						for _, t := range d.Tasks {
-							if t.Status == Pending {
-								d.out <- t
-								break
-							}
-						}
+						d.out <- t
 					default:
-
+						buffer = append(buffer, t)
 					}
+
 				case <-d.stopAll:
 					return
-				default:
-					n := len(d.available)
+				case <-d.available:
+					n := len(buffer)
+					var t *Task
+					if n > 0 {
+						t = buffer[0]
+						buffer = buffer[1:n]
 
-					for i := 0; i < n && len(d.Tasks) > 0; i++ {
-						for _, t := range d.Tasks {
-							if t.Status == Pending {
-								d.out <- t
-								_ = <-d.available
-							}
-						}
+					} else {
+						t = <-d.in
 					}
-					time.Sleep(time.Second / 2)
+					d.out <- t
 				}
 
 			}
@@ -245,11 +255,7 @@ func (d *Downloader) Add(task *Task) {
 	// d.Logger.Debug("Adding *Task", task.Request.URL, task.LocalPath)
 
 	d.wg.Add(1)
-
-	go func() {
-		d.in <- task
-
-	}()
+	d.in <- task
 }
 
 //Wait suspends the downloader
@@ -259,7 +265,7 @@ func (d *Downloader) Wait() {
 
 //NewWithDefaultClient returns a downloader with default client
 func NewWithDefaultClient() *Downloader {
-	return NewWithCliet(&http.Client{Transport: &http.Transport{}})
+	return NewWithCliet(&http.Client{Transport: http.DefaultTransport})
 }
 
 //NewWithCliet takes a http clinet and return a downloader with that client
@@ -269,7 +275,6 @@ func NewWithCliet(c *http.Client) *Downloader {
 		RetryWaitMax: defaultRetryWaitMax,
 		RetryWaitMin: defaultRetryWaitMin,
 		Backoff:      helper.DefaultBackoff,
-		Client:       c,
 		Logger:       log.G,
 
 		bytesChan:  make(chan int64),
@@ -281,11 +286,21 @@ func NewWithCliet(c *http.Client) *Downloader {
 	r.in = make(chan *Task, r.MaxWorkers)
 	r.out = make(chan *Task, r.MaxWorkers)
 	r.available = make(chan struct{}, r.MaxWorkers)
+	r.Client = make([]*http.Client, r.MaxWorkers)
+	for n := range r.Client {
+		r.Client[n] = &http.Client{Transport: &http.Transport{}}
+		/*
+			t := *c
+			tt := t.Transport
+			t.Transport = tt
+			r.Client[n] = &t
+		*/
+	}
 	return r
 }
 
-//Download method does the task
-func (d *Downloader) Download(t *Task) {
+//Download method does the task with a given clinet
+func (d *Downloader) Download(t *Task, i int) {
 	//skip finished tasks
 	if !t.Overwrite {
 		if _, err := os.Stat(t.LocalPath); !os.IsNotExist(err) {
@@ -349,8 +364,9 @@ func (d *Downloader) Download(t *Task) {
 			case <-time.After(d.Backoff(d.RetryWaitMin, d.RetryWaitMax, tries, nil)):
 			}
 		}
+		c := &http.Client{Transport: &http.Transport{}}
 		//send request from the task and get response
-		resp, err := d.Client.Do(req)
+		resp, err := c.Do(req)
 		if err != nil {
 			d.Logger.Debug("Response error:", err, req.URL)
 			continue

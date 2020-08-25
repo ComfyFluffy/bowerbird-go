@@ -230,8 +230,8 @@ func New() *cli.App {
 							}
 
 							pixivdl.Start()
-							processIllusts(ri, c.Int("limit"), pixivdl, pixivapi, conf.Storage.ParsedPixiv(), c.StringSlice("tags"), c.Bool("tags-match-all"), db, dbOnly)
 							downloaderUILoop(pixivdl)
+							processIllusts(ri, c.Int("limit"), pixivdl, pixivapi, conf.Storage.ParsedPixiv(), c.StringSlice("tags"), c.Bool("tags-match-all"), db, dbOnly)
 							return nil
 						},
 					},
