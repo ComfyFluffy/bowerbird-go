@@ -127,7 +127,11 @@ func New() *cli.App {
 			{
 				Name: "serve",
 				Action: func(c *cli.Context) error {
-					return server.Serve(conf, db)
+					err := server.Serve(conf, db)
+					if err != nil {
+						log.G.Error(err)
+					}
+					return nil
 				},
 			},
 			{

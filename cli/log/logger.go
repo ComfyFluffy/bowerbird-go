@@ -88,7 +88,7 @@ func (l *Logger) Debug(a ...interface{}) {
 		times   string
 		message string
 	)
-	if l.ConsoleLevel <= ERROR || l.FileLevel <= ERROR {
+	if l.ConsoleLevel <= DEBUG || l.FileLevel <= DEBUG {
 		times = timeNowString()
 		message = fmt.Sprintln(a...)
 	}
