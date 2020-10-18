@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"sync"
 	"time"
 
@@ -222,7 +223,6 @@ func (d *Downloader) Download(t *Task) {
 			return
 		}
 	}
-	log.G.Debug("starting task", t.Request.URL, t.LocalPath)
 
 	onErr := func(message string, err error) {
 		d.Logger.Error(fmt.Sprintf("task failed: download %s to %s: %s: %s", t.Request.URL, t.LocalPath, message, err))
@@ -237,6 +237,9 @@ func (d *Downloader) Download(t *Task) {
 	tries := 0
 	bytes := int64(0)
 	part := t.LocalPath + ".part"
+
+	log.G.Debug("starting task", req.URL, t.LocalPath, req.Header)
+
 	os.MkdirAll(filepath.Dir(t.LocalPath), 0755)
 	f, err := os.OpenFile(part, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0644)
 	if err != nil {
@@ -249,15 +252,15 @@ func (d *Downloader) Download(t *Task) {
 	if err != nil {
 		d.Logger.Error("stat file", part, err)
 	} else {
-		// get already downloaded bytes count
+		// get the size of downloaded part
 		bytes = fi.Size()
 	}
 
 	for {
 		if bytes > 0 {
-			// skip the bytes already downloaded with Range header
+			// skip the downloaded part
 			req.Header["Range"] = []string{fmt.Sprintf("bytes=%d-", bytes)}
-			d.Logger.Debug("trying again with req.Header[\"Range\"] modified:", bytes)
+			d.Logger.Debug("trying again with header:", req.Header)
 		}
 
 		tries++
@@ -268,7 +271,7 @@ func (d *Downloader) Download(t *Task) {
 		if tries > 1 {
 			select {
 			case <-ctx.Done():
-				d.Logger.Debug("Task canceled by context:", ctx.Err())
+				d.Logger.Debug("task canceled by context:", ctx.Err())
 				t.Status = Canceled
 				return
 			case <-time.After(d.Backoff(d.RetryWaitMin, d.RetryWaitMax, tries, nil)):
@@ -289,14 +292,19 @@ func (d *Downloader) Download(t *Task) {
 				err = fmt.Errorf("http code %d with message: %s", resp.StatusCode, r)
 			}
 
-			onErr("http code not ok", err)
+			onErr("not http code 2xx", err)
 			return
+		}
+
+		fn := filepath.Base(t.LocalPath)
+		if resp.ContentLength == -1 {
+			d.Logger.Warn(fmt.Sprintf("file %s started with Content-Length unknown, request headers: %v response headers: %v", fn, req.Header, resp.Header))
 		}
 
 		written, err := t.copy(f, resp.Body, d.bytesChan)
 
 		resp.Body.Close()
-		if written == resp.ContentLength {
+		if written == resp.ContentLength || resp.ContentLength == -1 {
 			f.Close()
 			err := os.Rename(part, t.LocalPath)
 			if err != nil {
@@ -304,14 +312,14 @@ func (d *Downloader) Download(t *Task) {
 				return
 			}
 			t.Status = Finished
-			d.Logger.Info("task finished:", filepath.Base(t.LocalPath))
+			d.Logger.Info("task finished:", fn, "size:", strconv.FormatInt(written, 10))
 			if t.AfterFinished != nil {
 				// call AfterFinished hook
 				t.AfterFinished(t)
 			}
 			return
 		}
-		d.Logger.Debug(fmt.Sprintf("ContentLength doesn't match, bytes written: %d, url: %s, saving to: %s, error: %s", written, req.URL, t.LocalPath, err))
+		d.Logger.Debug(fmt.Sprintf("ContentLength doesn't match, bytes written: %d, ContentLength: %d, url: %s, saving to: %s, request header: %v, response header: %v, error: %v", written, resp.ContentLength, req.URL, t.LocalPath, req.Header, resp.Header, err))
 		if err := f.Sync(); err != nil {
 			onErr("sync file", err)
 			return

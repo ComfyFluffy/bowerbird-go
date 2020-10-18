@@ -3,6 +3,7 @@ package pixiv
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"net/url"
 	"path/filepath"
 	"regexp"
@@ -24,26 +25,26 @@ var (
 		// 2018/11/06/00/25/50
 		`(\d{4}\/\d{2}\/\d{2}\/\d{2}\/\d{2}\/\d{2})`,
 	)
-	PximgIllust = regexp.MustCompile(
-		// https://i.pximg.net/img-original/img/2020/06/04/11/26/29/82078769_p0.jpg
-		// https://i.pximg.net/img-original/img/2018/11/06/00/25/50/71525726_ugoira0.jpg
-		`^https:\/\/i\.pximg\.net\/img-original\/img\/\d{4}\/\d{2}\/\d{2}\/\d{2}\/\d{2}\/\d{2}\/\d+_(?:ugoira|p)\d+\..+$`,
-	)
-	PximgAvatar = regexp.MustCompile(
-		// https://i.pximg.net/user-profile/img/2020/08/04/11/43/18/19112778_c80cc80ba5399b9181d26f48b222b204_170.jpg
-		`^https:\/\/i\.pximg\.net\/user-profile\/img\/\d{4}\/\d{2}\/\d{2}\/\d{2}\/\d{2}\/\d{2}\/\d+_[0-9a-f]{32}_170\..+$`,
-	)
-	PximgProfileBackground = regexp.MustCompile(
-		// https://i.pximg.net/c/1200x600_90_a2_g5/background/img/2020/06/06/13/27/08/3025732_8257093997155eda44f50624057218be_master1200.jpg
-		// https://i.pximg.net/c/1200x1200_90_a2_g5/background/img/2016/05/17/13/15/02/1278271_5a41eb54a8ede94a257321d1e100f739.jpg
-		`^https:\/\/i\.pximg\.net\/c\/\d+x\d+_90_a2_g5\/background\/img\/\d{4}\/\d{2}\/\d{2}\/\d{2}\/\d{2}\/\d{2}\/\d+_[0-9a-f]{32}.*\..+$`,
-	)
-	PximgWorkspaceImage = regexp.MustCompile(
-		`^https:\/\/i\.pximg\.net\/workspace\/img\/\d{4}\/\d{2}\/\d{2}\/\d{2}\/\d{2}\/\d{2}\/\d+_[0-9a-f]{32}\..+$`,
-	)
-	PximgUgoiraZip = regexp.MustCompile(
-		`^https:\/\/i\.pximg\.net\/img-zip-ugoira\/img\/\d{4}\/\d{2}\/\d{2}\/\d{2}\/\d{2}\/\d{2}\/\d+_ugoira\d+x\d+\..+$`,
-	)
+	// PximgIllust = regexp.MustCompile(
+	// 	// https://i.pximg.net/img-original/img/2020/06/04/11/26/29/82078769_p0.jpg
+	// 	// https://i.pximg.net/img-original/img/2018/11/06/00/25/50/71525726_ugoira0.jpg
+	// 	`^https:\/\/i\.pximg\.net\/img-original\/img\/\d{4}\/\d{2}\/\d{2}\/\d{2}\/\d{2}\/\d{2}\/\d+_(?:ugoira|p)\d+\..+$`,
+	// )
+	// PximgAvatar = regexp.MustCompile(
+	// 	// https://i.pximg.net/user-profile/img/2020/08/04/11/43/18/19112778_c80cc80ba5399b9181d26f48b222b204_170.jpg
+	// 	`^https:\/\/i\.pximg\.net\/user-profile\/img\/\d{4}\/\d{2}\/\d{2}\/\d{2}\/\d{2}\/\d{2}\/\d+_[0-9a-f]{32}_170\..+$`,
+	// )
+	// PximgProfileBackground = regexp.MustCompile(
+	// 	// https://i.pximg.net/c/1200x600_90_a2_g5/background/img/2020/06/06/13/27/08/3025732_8257093997155eda44f50624057218be_master1200.jpg
+	// 	// https://i.pximg.net/c/1200x1200_90_a2_g5/background/img/2016/05/17/13/15/02/1278271_5a41eb54a8ede94a257321d1e100f739.jpg
+	// 	`^https:\/\/i\.pximg\.net\/c\/\d+x\d+_90_a2_g5\/background\/img\/\d{4}\/\d{2}\/\d{2}\/\d{2}\/\d{2}\/\d{2}\/\d+_[0-9a-f]{32}.*\..+$`,
+	// )
+	// PximgWorkspaceImage = regexp.MustCompile(
+	// 	`^https:\/\/i\.pximg\.net\/workspace\/img\/\d{4}\/\d{2}\/\d{2}\/\d{2}\/\d{2}\/\d{2}\/\d+_[0-9a-f]{32}\..+$`,
+	// )
+	// PximgUgoiraZip = regexp.MustCompile(
+	// 	`^https:\/\/i\.pximg\.net\/img-zip-ugoira\/img\/\d{4}\/\d{2}\/\d{2}\/\d{2}\/\d{2}\/\d{2}\/\d+_ugoira\d+x\d+\..+$`,
+	// )
 )
 
 // pximgSingleFileWithDate returns path like `123/27427531_p0_20120522161622.png`.
@@ -120,6 +121,15 @@ func updateUsers(db *mongo.Database, api *pixiv.AppAPI, usersToUpdate []int) {
 	}
 }
 
+func newPximgRequest(url string) (*http.Request, error) {
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header["Referer"] = []string{"https://app-api.pixiv.net"}
+	return req, nil
+}
+
 // ProcessIllusts processes the pixiv illusts until
 // the NextURL is empty or the limit reached
 func ProcessIllusts(ri *pixiv.RespIllusts, limit int, dl *downloader.Downloader, api *pixiv.AppAPI, basePath string, tags []string, tagsMatchAll bool, db *mongo.Database, dbOnly bool) {
@@ -163,7 +173,7 @@ Loop:
 				}
 
 				if il.MetaSinglePage.OriginalImageURL != "" {
-					req, err := api.NewPximgRequest("GET", il.MetaSinglePage.OriginalImageURL, nil)
+					req, err := newPximgRequest(il.MetaSinglePage.OriginalImageURL)
 					if err != nil {
 						log.G.Error(err)
 						continue
@@ -179,7 +189,7 @@ Loop:
 					dl.Add(t)
 				} else {
 					for _, iu := range il.MetaPages {
-						req, err := api.NewPximgRequest("GET", iu.ImageURLs.Original, nil)
+						req, err := newPximgRequest(iu.ImageURLs.Original)
 						if err != nil {
 							log.G.Error(err)
 							continue
