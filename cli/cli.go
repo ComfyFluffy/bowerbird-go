@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"time"
 
 	"github.com/WOo0W/bowerbird/model"
 	"github.com/WOo0W/bowerbird/server"
@@ -25,7 +26,6 @@ import (
 func New() *cli.App {
 	conf := config.New()
 	configFile := ""
-	noDB := false
 	dbOnly := false
 
 	var (
@@ -86,12 +86,8 @@ func New() *cli.App {
 				Destination: &configFile,
 			},
 			&cli.BoolFlag{
-				Name:        "no-db",
-				Usage:       "Do not connect to the database",
-				Destination: &noDB,
-			},
-			&cli.BoolFlag{
 				Name:        "db-only",
+				Aliases:     []string{"d"},
 				Usage:       "Save items to database but not download them",
 				Destination: &dbOnly,
 			},
@@ -106,7 +102,7 @@ func New() *cli.App {
 			log.G.ConsoleLevel = log.ParseLevel(conf.Log.ConsoleLevel)
 			log.G.FileLevel = log.ParseLevel(conf.Log.FileLevel)
 
-			if !noDB {
+			if conf.Database.Enabled {
 				ctx := context.Background()
 				var err error
 				dbc, err = connectToDB(ctx, conf.Database.MongoURI)
@@ -150,13 +146,21 @@ func New() *cli.App {
 					&cli.IntFlag{
 						Name:    "user",
 						Aliases: []string{"u"},
-						Usage:   "Specify the pixiv user id for the operations. Default use the logged user's ID.",
+						Usage:   "Specify the pixiv user ID for the operations. Default use the logged user's ID.",
 					},
 					&cli.IntFlag{
 						Name:    "limit",
 						Aliases: []string{"l"},
 						Usage:   "Limit how many items to download",
 					},
+				},
+				Before: func(c *cli.Context) error {
+					err := initPixiv()
+					if err != nil {
+						log.G.Error(err)
+						return cli.Exit("", 1)
+					}
+					return nil
 				},
 				Subcommands: []*cli.Command{
 					{
@@ -167,18 +171,23 @@ func New() *cli.App {
 								Name:  "all",
 								Usage: "Update all users in database despite modified date",
 							},
+							&cli.DurationFlag{
+								Name:  "before",
+								Usage: "Update users profile which was updated before the duration till now. Default: 240h",
+							},
 						},
 						Action: func(c *cli.Context) error {
-							err := initPixiv()
-							if err != nil {
-								log.G.Error(err)
+							if !conf.Database.Enabled {
+								log.G.Error("User profiles are not saved without database.")
 								return nil
 							}
-							if noDB {
-								log.G.Error("--no-db flag is true. cannot update.")
-								return nil
+							var du time.Duration
+							if c.IsSet("before") {
+								du = c.Duration("before")
+							} else {
+								du = 240 * time.Hour
 							}
-							err = pixivh.UpdateAllUsers(db, pixivapi, c.Bool("all"))
+							err := pixivh.UpdateAllUsers(db, pixivapi, c.Bool("all"), du)
 							if err != nil {
 								log.G.Error(err)
 							}
@@ -186,88 +195,144 @@ func New() *cli.App {
 						},
 					},
 					{
-						Name:  "bookmark",
-						Usage: "Get user's bookmarked works",
-						Flags: []cli.Flag{
-							&cli.BoolFlag{
-								Name:  "private",
-								Usage: "Download the private bookmarks only",
+						Name:  "illust",
+						Usage: "Save illusts, manga and ugoira from pixiv",
+						Subcommands: []*cli.Command{
+							{
+								Name:  "bookmarks",
+								Usage: "Get user's bookmarked works",
+								Flags: []cli.Flag{
+									&cli.BoolFlag{
+										Name:  "private",
+										Usage: "Download the private bookmarks only",
+									},
+									&cli.IntFlag{
+										Name:  "max-bookmark-id",
+										Usage: "Specify max_bookmark_id field",
+									},
+								},
+								Action: func(c *cli.Context) error {
+									var restrict pixiv.Restrict
+									if c.Bool("private") {
+										restrict = pixiv.RPrivate
+									} else {
+										restrict = pixiv.RPublic
+									}
+
+									uid := getPixivUserFlag(c, pixivapi.UserID)
+
+									var opt *pixiv.BookmarkQuery
+									if c.IsSet("max-bookmark-id") {
+										opt = &pixiv.BookmarkQuery{
+											MaxBookmarkID: c.Int("max-bookmark-id"),
+										}
+									}
+
+									r, err := pixivapi.User.BookmarkedIllusts(uid, restrict, opt)
+									if err != nil {
+										log.G.Error(err)
+										return nil
+									}
+
+									pixivdl.Start()
+									pixivh.ProcessIllusts(r, c.Int("limit"), pixivdl, pixivapi, conf.Storage.ParsedPixiv(), c.StringSlice("tags"), c.Bool("tags-match-all"), db, dbOnly)
+									downloaderUILoop(pixivdl)
+									return nil
+								},
 							},
-							&cli.IntFlag{
-								Name:  "max-bookmark-id",
-								Usage: "Specify max_bookmark_id field",
+							{
+								Name:  "uploads",
+								Usage: "Get user's uploaded works",
+								Action: func(c *cli.Context) error {
+									uid := getPixivUserFlag(c, pixivapi.UserID)
+
+									var opt *pixiv.IllustQuery
+									offset := c.Int("offset")
+									if offset > 0 {
+										opt = &pixiv.IllustQuery{
+											Offset: offset,
+										}
+									}
+									ri, err := pixivapi.User.Illusts(uid, opt)
+									if err != nil {
+										log.G.Error(err)
+										return nil
+									}
+
+									pixivdl.Start()
+									pixivh.ProcessIllusts(ri, c.Int("limit"), pixivdl, pixivapi, conf.Storage.ParsedPixiv(), c.StringSlice("tags"), c.Bool("tags-match-all"), db, dbOnly)
+									downloaderUILoop(pixivdl)
+									return nil
+								},
 							},
-						},
-
-						Action: func(c *cli.Context) error {
-							err := initPixiv()
-							if err != nil {
-								log.G.Error(err)
-								return nil
-							}
-							var restrict pixiv.Restrict
-							if c.Bool("private") {
-								restrict = pixiv.RPrivate
-							} else {
-								restrict = pixiv.RPublic
-							}
-
-							var uid int
-							if c.IsSet("user") {
-								uid = c.Int("user")
-							} else {
-								uid = pixivapi.UserID
-							}
-							var opt *pixiv.BookmarkQuery
-							maxBookmarkID := c.Int("max-bookmark-id")
-							if maxBookmarkID > 0 {
-								opt = &pixiv.BookmarkQuery{
-									MaxBookmarkID: maxBookmarkID,
-								}
-							}
-							r, err := pixivapi.User.BookmarkedIllusts(uid, restrict, opt)
-							if err != nil {
-								log.G.Error(err)
-								return nil
-							}
-
-							pixivdl.Start()
-							pixivh.ProcessIllusts(r, c.Int("limit"), pixivdl, pixivapi, conf.Storage.ParsedPixiv(), c.StringSlice("tags"), c.Bool("tags-match-all"), db, dbOnly)
-							downloaderUILoop(pixivdl)
-							return nil
 						},
 					},
 					{
-						Name:  "uploads",
-						Usage: "Get user's uploaded works",
-						Action: func(c *cli.Context) error {
-							err := initPixiv()
-							if err != nil {
-								log.G.Error(err)
-								return nil
+						Name:  "novel",
+						Usage: "Save novel to database from pixiv",
+						Before: func(c *cli.Context) error {
+							if db == nil {
+								log.G.Error("Can only save novel while the database is enabled")
+								return cli.Exit("", 1)
 							}
-							var uid int
-							if c.IsSet("user") {
-								uid = c.Int("user")
-							} else {
-								uid = pixivapi.UserID
-							}
-							var opt *pixiv.IllustQuery
-							offset := c.Int("offset")
-							if offset > 0 {
-								opt = &pixiv.IllustQuery{
-									Offset: offset,
-								}
-							}
-							ri, err := pixivapi.User.Illusts(uid, opt)
-							if err != nil {
-								return nil
-							}
-
-							pixivdl.Start()
-							pixivh.ProcessIllusts(ri, c.Int("limit"), pixivdl, pixivapi, conf.Storage.ParsedPixiv(), c.StringSlice("tags"), c.Bool("tags-match-all"), db, dbOnly)
-							downloaderUILoop(pixivdl)
 							return nil
+						},
+						Subcommands: []*cli.Command{
+							{
+								Name: "bookmarks",
+								Flags: []cli.Flag{
+									// &cli.BoolFlag{
+									// 	Name:  "save-series",
+									// 	Usage: "Save full series of each bookmarked novel.",
+									// },
+									&cli.BoolFlag{
+										Name:  "private",
+										Usage: "Download the private bookmarks only",
+									},
+									&cli.IntFlag{
+										Name:  "max-bookmark-id",
+										Usage: "Specify max_bookmark_id field",
+									},
+								},
+								Action: func(c *cli.Context) error {
+									var restrict pixiv.Restrict
+									if c.Bool("private") {
+										restrict = pixiv.RPrivate
+									} else {
+										restrict = pixiv.RPublic
+									}
+
+									uid := getPixivUserFlag(c, pixivapi.UserID)
+
+									var opt *pixiv.BookmarkQuery
+									if c.IsSet("max-bookmark-id") {
+										opt = &pixiv.BookmarkQuery{
+											MaxBookmarkID: c.Int("max-bookmark-id"),
+										}
+									}
+
+									rn, err := pixivapi.User.BookmarkedNovels(uid, restrict, opt)
+									if err != nil {
+										log.G.Error(err)
+										return nil
+									}
+									pixivh.ProcessNovels(rn, c.Int("limit"), pixivapi, c.StringSlice("tags"), c.Bool("tags-match-all"), db)
+									return nil
+								},
+							},
+							{
+								Name: "uploads",
+								Action: func(c *cli.Context) error {
+									uid := getPixivUserFlag(c, pixivapi.UserID)
+									rn, err := pixivapi.User.Novels(uid)
+									if err != nil {
+										log.G.Error(err)
+										return nil
+									}
+									pixivh.ProcessNovels(rn, c.Int("limit"), pixivapi, c.StringSlice("tags"), c.Bool("tags-match-all"), db)
+									return nil
+								},
+							},
 						},
 					},
 				},

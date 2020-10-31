@@ -12,18 +12,27 @@ type (
 	d = bson.D
 )
 
+// Source stores the source of data
+type Source string
+
+// Various sources (websites)
+const (
+	SourcePixiv Source = "pixiv"
+)
+
 // User defines the creator of the content.
 type User struct {
 	ID        primitive.ObjectID `bson:"_id,omitempty" json:"id"`
 	Rating    int                `bson:"rating,omitempty" json:"rating,omitempty"`
-	Source    string             `bson:"source,omitempty" json:"source"`
+	Source    Source             `bson:"source,omitempty" json:"source"`
 	SourceID  string             `bson:"sourceID,omitempty" json:"sourceID"`
 	Extension *ExtUser           `bson:"extension,omitempty" json:"extension,omitempty"`
 
 	LastModified time.Time `bson:"lastModified,omitempty" json:"lastModified,omitempty"`
 
-	AvatarIDs []primitive.ObjectID `bson:"avatarIDs,omitempty" json:"-"`
-	TagIDs    []primitive.ObjectID `bson:"tagIDs,omitempty" json:"-"`
+	CurrentAvatarID primitive.ObjectID   `bson:"currentAvatarID,omitempty" json:"-"`
+	AvatarIDs       []primitive.ObjectID `bson:"avatarIDs,omitempty" json:"-"`
+	TagIDs          []primitive.ObjectID `bson:"tagIDs,omitempty" json:"-"`
 
 	Tags       []Tag       `bson:"tags,omitempty" json:"tags,omitempty"`
 	Avatar     *Media      `bson:"avatar,omitempty" json:"avatar,omitempty"`
@@ -59,11 +68,20 @@ type ExtUserDetail struct {
 	Pixiv *PixivUserProfile `bson:"pixiv,omitempty" json:"pixiv,omitempty"`
 }
 
-// Post defines user created content
+// PostSource stores various sources of Post
+type PostSource string
+
+// Source of Post
+const (
+	PostSourcePixivIllust PostSource = "pixiv-illust"
+	PostSourcePixivNovel  PostSource = "pixiv-novel"
+)
+
+// Post defines user created content.
 type Post struct {
 	ID              primitive.ObjectID `bson:"_id,omitempty" json:"id"`
 	Rating          int                `bson:"rating,omitempty" json:"rating,omitempty"`
-	Source          string             `bson:"source,omitempty" json:"source,omitempty"`
+	Source          PostSource         `bson:"source,omitempty" json:"source,omitempty"`
 	SourceID        string             `bson:"sourceID,omitempty" json:"sourceID,omitempty"`
 	SourceInvisible bool               `bson:"sourceInvisible" json:"sourceInvisible"`
 	Extension       *ExtPost           `bson:"extension,omitempty" json:"extension"`
@@ -85,7 +103,7 @@ type ExtPost struct {
 	Pixiv *PixivPost `bson:"pixiv,omitempty" json:"pixiv,omitempty"`
 }
 
-// PostDetail defines the detail of Post
+// PostDetail defines the detail of Post.
 type PostDetail struct {
 	ID        primitive.ObjectID `bson:"_id,omitempty" json:"id"`
 	PostID    primitive.ObjectID `bson:"postID,omitempty" json:"-"`
@@ -95,14 +113,25 @@ type PostDetail struct {
 	MediaIDs []primitive.ObjectID `bson:"mediaIDs,omitempty" json:"-"`
 }
 
-// ExtPostDetail extends the PostDetail
+// ExtPostDetail extends the PostDetail from various sources
 type ExtPostDetail struct {
-	Pixiv *PixivIllustDetail `bson:"pixiv,omitempty" json:"pixiv,omitempty"`
+	PixivIllust *PixivIllustDetail `bson:"pixivIllust,omitempty" json:"pixivIllust,omitempty"`
+	PixivNovel  *PixivNovelDetail  `bson:"pixivNovel,omitempty" json:"pixivNovel,omitempty"`
 }
 
-// Collection defines the collection of Post
+// CollectionSource stores the sources of various collections.
+type CollectionSource string
+
+// Various CollectionSource
+const (
+	CollectionSourcePixivNovelSeries CollectionSource = "pixiv-novel-series"
+)
+
+// Collection defines the collection of Post.
 type Collection struct {
 	ID        primitive.ObjectID `bson:"_id,omitempty" json:"id"`
+	Source    CollectionSource   `bson:"source,omitempty" json:"source,omitempty"`
+	SourceID  string             `bson:"sourceID,omitempty" json:"sourceID,omitempty"`
 	Name      string             `bson:"name,omitempty" json:"name"`
 	Extension *ExtCollection     `bson:"extension,omitempty" json:"extension"`
 
@@ -116,22 +145,23 @@ type Collection struct {
 // ExtCollection extends the Collection.
 type ExtCollection struct{}
 
-// Tag defines the tag of the User, Post and Collection
+// Tag defines the tag of the User, Post and Collection.
 type Tag struct {
 	ID     primitive.ObjectID `bson:"_id,omitempty" json:"id"`
 	Alias  []string           `bson:"alias,omitempty" json:"alias,omitempty"`
-	Source string             `bson:"source,omitempty" json:"source,omitempty"`
+	Source Source             `bson:"source,omitempty" json:"source,omitempty"`
 }
 
-// MediaType defines the website and type of the media.
+// MediaType stores the source and type of the media
 type MediaType string
 
 // media types
 const (
 	MediaPixivAvatar            MediaType = "pixiv-avatar"
-	MediaPixivWorkspaceImage              = "pixiv-workspace-image"
-	MediaPixivIllust                      = "pixiv-illust"
-	MediaPixivProfileBackground           = "pixiv-profile-background"
+	MediaPixivWorkspaceImage    MediaType = "pixiv-workspace-image"
+	MediaPixivIllust            MediaType = "pixiv-illust"
+	MediaPixivNovelCover        MediaType = "pixiv-novel-cover"
+	MediaPixivProfileBackground MediaType = "pixiv-profile-background"
 )
 
 // Media defines the assets of Post
@@ -148,7 +178,7 @@ type Media struct {
 	Extension *ExtMedia          `bson:"extension,omitempty" json:"extension"`
 }
 
-// ExtMedia extends the media.
+// ExtMedia extends the media from various sources
 type ExtMedia struct {
 	Pixiv *PixivMedia `bson:"pixiv,omitempty" json:"pixiv,omitempty"`
 }

@@ -18,7 +18,7 @@ import (
 
 type taskState int
 
-// States of Task
+// States of tasks
 const (
 	Pending taskState = iota
 	Running
@@ -26,6 +26,7 @@ const (
 	Paused
 	Canceled
 	Failed
+	Skipped
 )
 
 const (
@@ -76,7 +77,7 @@ func (t *Task) copy(dst io.Writer, src io.Reader, bytesChan chan int64) (written
 					t.bytesNow = 0
 				default:
 					t.bytesNow += n
-					// psuh n to global speed calculating goroutine
+					// push n to global speed calculating goroutine
 					bytesChan <- n
 				}
 			}

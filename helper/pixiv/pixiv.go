@@ -10,6 +10,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/WOo0W/bowerbird/cli/log"
 	"github.com/WOo0W/bowerbird/downloader"
@@ -17,6 +18,7 @@ import (
 	"github.com/WOo0W/go-pixiv/pixiv"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
+	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
 // regexp matchers for url of i.pximg.net
@@ -96,9 +98,23 @@ func hasAnyTag(src []pixiv.Tag, check ...string) bool {
 	return false
 }
 
-func updateUsers(db *mongo.Database, api *pixiv.AppAPI, usersToUpdate []int) {
-	log.G.Info("updating", len(usersToUpdate), "user profiles...")
-	for i, id := range usersToUpdate {
+func updateUserSet(ctx context.Context, cu, cud, cm *mongo.Collection, api *pixiv.AppAPI, userIDSet map[int]struct{}) {
+	if len(userIDSet) == 0 {
+		return
+	}
+
+	userIDs := make([]int, 0, len(userIDSet))
+	for i := range userIDSet {
+		userIDs = append(userIDs, i)
+	}
+	sort.Ints(userIDs)
+
+	updateUserProfiles(ctx, cu, cud, cm, api, userIDs)
+}
+
+func updateUserProfiles(ctx context.Context, cu, cud, cm *mongo.Collection, api *pixiv.AppAPI, userIDs []int) {
+	log.G.Info("updating", len(userIDs), "user profiles...")
+	for i, id := range userIDs {
 		// Current:
 		r, err := api.User.Detail(id, nil)
 		if err != nil {
@@ -112,13 +128,54 @@ func updateUsers(db *mongo.Database, api *pixiv.AppAPI, usersToUpdate []int) {
 			// 	continue
 			// }
 		}
-		err = saveUserProfile(r, db)
+		err = saveUserProfile(ctx, cu, cud, cm, r)
 		if err != nil {
 			log.G.Error(err)
 			continue
 		}
-		log.G.Info(fmt.Sprintf("[%d/%d] updated user %s (%d)", i+1, len(usersToUpdate), r.User.Name, r.User.ID))
+		log.G.Info(fmt.Sprintf("[%d/%d] updated user profile %s (%d)", i+1, len(userIDs), r.User.Name, r.User.ID))
 	}
+}
+
+// UpdateAllUsers updates the pixiv user in database.
+// If forceAll is true it updates all pixiv users,
+// otherwise it updates the users whose lastModified
+// is before now - before
+func UpdateAllUsers(db *mongo.Database, api *pixiv.AppAPI, forceAll bool, before time.Duration) error {
+	ctx := context.Background()
+	cu := db.Collection(model.CollectionUser)
+	cud := db.Collection(model.CollectionUserDetail)
+	cm := db.Collection(model.CollectionMedia)
+	var filter d
+	if forceAll {
+		filter = d{{Key: "source", Value: model.SourcePixiv}}
+	} else {
+		filter = d{
+			{Key: "source", Value: model.SourcePixiv},
+			{Key: "$or", Value: a{
+				d{{Key: "lastModified", Value: d{{Key: "$exists", Value: false}}}},
+				d{{Key: "lastModified", Value: d{{Key: "$lt", Value: time.Now().Add(-before)}}}},
+			}},
+		}
+	}
+	cur, err := cu.Find(ctx,
+		filter,
+		options.Find().SetProjection(d{{Key: "sourceID", Value: 1}}))
+	if err != nil {
+		return err
+	}
+	log.G.Warn(cur.RemainingBatchLength())
+	ids := make([]int, 0, cur.RemainingBatchLength())
+	for cur.Next(ctx) {
+		id := cur.Current.Lookup("sourceID").StringValue()
+		idInt, err := strconv.Atoi(id)
+		if err != nil {
+			return err
+		}
+		ids = append(ids, idInt)
+	}
+	updateUserProfiles(ctx, cu, cud, cm, api, ids)
+	return nil
 }
 
 func newPximgRequest(url string) (*http.Request, error) {
@@ -135,15 +192,22 @@ func newPximgRequest(url string) (*http.Request, error) {
 func ProcessIllusts(ri *pixiv.RespIllusts, limit int, dl *downloader.Downloader, api *pixiv.AppAPI, basePath string, tags []string, tagsMatchAll bool, db *mongo.Database, dbOnly bool) {
 	i := 0
 	idb := 0
-	usersToUpdate := make(map[int]struct{}, 120)
-	var cm *mongo.Collection
+	usersToUpdate := make(map[int]struct{})
+
+	var cu, cp, cpd, ct, cm, cud *mongo.Collection
 	if db != nil {
+		cu = db.Collection(model.CollectionUser)
+		cud = db.Collection(model.CollectionUserDetail)
+		cp = db.Collection(model.CollectionPost)
+		cpd = db.Collection(model.CollectionPostDetail)
+		ct = db.Collection(model.CollectionTag)
 		cm = db.Collection(model.CollectionMedia)
 	}
+
 Loop:
 	for {
 		if db != nil {
-			err := saveIllusts(ri.Illusts, db, usersToUpdate)
+			err := saveIllusts(ri.Illusts, cu, cp, cpd, ct, cm, usersToUpdate)
 			if err != nil {
 				log.G.Error(err)
 				return
@@ -234,13 +298,45 @@ Loop:
 	}
 	log.G.Info("all", i, "items processed")
 
-	if len(usersToUpdate) > 0 {
-		userIDs := make([]int, 0, len(usersToUpdate))
-		for i := range usersToUpdate {
-			userIDs = append(userIDs, i)
-		}
-		sort.Ints(userIDs)
+	updateUserSet(context.Background(), cu, cud, cm, api, usersToUpdate)
+}
 
-		updateUsers(db, api, userIDs)
+// ProcessNovels saves pixiv novels to database
+func ProcessNovels(rn *pixiv.RespNovels, limit int, api *pixiv.AppAPI, tags []string, tagsMatchAll bool, db *mongo.Database) {
+	i := 0
+	usersToUpdate := make(map[int]struct{})
+
+	var cu, cp, cpd, ct, cm, cc, cud *mongo.Collection
+	if db != nil {
+		cu = db.Collection(model.CollectionUser)
+		cp = db.Collection(model.CollectionPost)
+		cpd = db.Collection(model.CollectionPostDetail)
+		ct = db.Collection(model.CollectionTag)
+		cm = db.Collection(model.CollectionMedia)
+		cc = db.Collection(model.CollectionCollection)
+		cud = db.Collection(model.CollectionUserDetail)
 	}
+
+	for {
+		var err error
+		i, err = saveNovels(rn.Novels, cu, cp, cpd, ct, cm, cc, api, usersToUpdate, i, limit)
+		if err != nil {
+			log.G.Error(err)
+			return
+		}
+
+		if rn.NextURL == "" || limit != 0 && i >= limit {
+			break
+		}
+
+		rn, err = rn.NextNovels()
+		if err != nil {
+			log.G.Error(err)
+			return
+		}
+	}
+
+	log.G.Info("all", i, "items processed")
+
+	updateUserSet(context.Background(), cu, cud, cm, api, usersToUpdate)
 }

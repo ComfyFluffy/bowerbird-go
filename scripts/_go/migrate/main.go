@@ -189,7 +189,7 @@ func loadDB() {
 	db.Table("users").Find(&ru)
 	for _, iu := range ru {
 		u := m.User{
-			Source:   "pixiv",
+			Source:   "pixiv-illust",
 			SourceID: strconv.Itoa(iu.ID),
 			Extension: &m.ExtUser{
 				Pixiv: &m.PixivUser{
@@ -281,14 +281,14 @@ func loadDB() {
 			)
 			if len(ts) > 1 {
 				_, err = mct.UpdateOne(ctx,
-					D{{"source", "pixiv"}, {"alias", D{{"$in", ts}}}},
+					D{{"source", m.PostSourcePixivIllust}, {"alias", D{{"$in", ts}}}},
 					D{{"$addToSet", D{
 						{"alias", D{
 							{"$each", ts}}}}}},
 					optsUUpsert)
 			} else if len(ts) == 1 {
 				_, err = mct.UpdateOne(ctx,
-					D{{"source", "pixiv"}, {"alias", ts[0]}},
+					D{{"source", m.PostSourcePixivIllust}, {"alias", ts[0]}},
 					D{{"$setOnInsert", D{{"alias", ts}}}},
 					optsUUpsert)
 			}
@@ -350,11 +350,11 @@ func loadDB() {
 		}
 		ri := m.Post{
 			OwnerID:         oid,
-			Source:          "pixiv",
+			Source:          "pixiv-illust",
 			SourceID:        strconv.Itoa(il.ID),
 			SourceInvisible: !il.IsVisible,
 			Extension: &m.ExtPost{
-				Pixiv: &m.PixivPost{
+				Pixiv: &m.PixivIllust{
 					TotalBookmarks: il.TotalBookmarks,
 					IsBookmarked:   il.IsBookmarked,
 					TotalViews:     il.TotalViews,

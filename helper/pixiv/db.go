@@ -2,6 +2,7 @@ package pixiv
 
 import (
 	"context"
+	"fmt"
 	"sort"
 	"strconv"
 	"time"
@@ -22,7 +23,7 @@ type (
 )
 
 var (
-	optsFOAIDOnly = options.FindOneAndUpdate().
+	optsFUIDOnly = options.FindOneAndUpdate().
 			SetUpsert(true).SetReturnDocument(options.After).
 			SetProjection(d{{Key: "_id", Value: 1}})
 	optsUUpsert = options.Update().SetUpsert(true)
@@ -47,39 +48,31 @@ func insertMediaWithURL(ctx context.Context, cm *mongo.Collection, t model.Media
 	}
 	r, err := cm.FindOneAndUpdate(ctx,
 		d{{Key: "url", Value: url}}, updater,
-		optsFOAIDOnly).DecodeBytes()
+		optsFUIDOnly).DecodeBytes()
 	if err != nil {
 		return primitive.ObjectID{}, err
 	}
 	return lookupObjectID(r), nil
 }
 
-func updateAvatars(ctx context.Context, db *mongo.Database, uid, url string) error {
+func updatePixivAvatars(ctx context.Context, cu, cm *mongo.Collection, uid string, url string) error {
 	if url == "" || uid == "" {
 		return nil
 	}
-	cu := db.Collection(model.CollectionUser)
-	cm := db.Collection(model.CollectionMedia)
-
 	id, err := insertMediaWithURL(ctx, cm, model.MediaPixivAvatar, url, 0, 0)
 	if err != nil {
 		return err
 	}
 	_, err = cu.UpdateOne(ctx,
-		d{{Key: "source", Value: "pixiv"}, {Key: "sourceID", Value: uid},
-			{Key: "avatarIDs",
-				Value: d{{Key: "$ne", Value: id}}}},
-		d{{Key: "$push",
-			Value: d{{Key: "avatarIDs", Value: id}}}})
+		d{{Key: "source", Value: model.SourcePixiv}, {Key: "sourceID", Value: uid}},
+		d{
+			{Key: "$addToSet", Value: d{{Key: "avatarIDs", Value: id}}},
+			{Key: "$set", Value: d{{Key: "currentAvatarID", Value: id}}},
+		})
 	return err
 }
 
-func saveUserProfile(ru *pixiv.RespUserDetail, db *mongo.Database) error {
-	ctx := context.Background()
-	cu := db.Collection(model.CollectionUser)
-	cud := db.Collection(model.CollectionUserDetail)
-	cm := db.Collection(model.CollectionMedia)
-
+func saveUserProfile(ctx context.Context, cu, cud, cm *mongo.Collection, ru *pixiv.RespUserDetail) error {
 	u, ud := model.User{
 		Extension: &model.ExtUser{Pixiv: &model.PixivUser{
 			IsFollowed:           ru.User.IsFollowed,
@@ -129,18 +122,18 @@ func saveUserProfile(ru *pixiv.RespUserDetail, db *mongo.Database) error {
 
 	uid := strconv.Itoa(ru.User.ID)
 	r, err := cu.FindOneAndUpdate(ctx,
-		d{{Key: "source", Value: "pixiv"}, {Key: "sourceID", Value: uid}},
+		d{{Key: "source", Value: model.SourcePixiv}, {Key: "sourceID", Value: uid}},
 		d{
 			{Key: "$set", Value: &u},
 			{Key: "$currentDate", Value: d{{Key: "lastModified", Value: true}}},
 		},
-		optsFOAIDOnly,
+		optsFUIDOnly,
 	).DecodeBytes()
 	if err != nil {
 		return err
 	}
 
-	err = updateAvatars(ctx, db, uid, ru.User.ProfileImageURLs.Medium)
+	err = updatePixivAvatars(ctx, cu, cm, uid, ru.User.ProfileImageURLs.Medium)
 	if err != nil {
 		return err
 	}
@@ -153,40 +146,68 @@ func saveUserProfile(ru *pixiv.RespUserDetail, db *mongo.Database) error {
 	return nil
 }
 
-func saveIllusts(ils []*pixiv.Illust, db *mongo.Database, usersToUpdate map[int]struct{}) error {
+func loadPixivTags(ctx context.Context, ct *mongo.Collection, tags []pixiv.Tag) ([]primitive.ObjectID, error) {
+	oids := make([]primitive.ObjectID, 0, len(tags))
+	for _, t := range tags {
+		ts := make([]string, 0, 2)
+		if t.Name != "" {
+			ts = append(ts, t.Name)
+		}
+		if t.TranslatedName != "" {
+			ts = append(ts, t.TranslatedName)
+		}
+
+		if len(ts) > 0 {
+			var (
+				r   bson.Raw
+				err error
+			)
+			if len(ts) > 1 {
+				r, err = ct.FindOneAndUpdate(ctx,
+					d{{Key: "source", Value: model.SourcePixiv}, {Key: "alias", Value: d{{Key: "$in", Value: ts}}}},
+					d{{Key: "$addToSet", Value: d{
+						{Key: "alias", Value: d{
+							{Key: "$each", Value: ts}}}}}},
+					optsFUIDOnly).DecodeBytes()
+			} else if len(ts) == 1 {
+				r, err = ct.FindOneAndUpdate(ctx,
+					d{{Key: "source", Value: model.SourcePixiv}, {Key: "alias", Value: ts[0]}},
+					d{{Key: "$setOnInsert", Value: d{{Key: "alias", Value: ts}}}},
+					optsFUIDOnly).DecodeBytes()
+			}
+			if err != nil {
+				return nil, err
+			}
+			oids = append(oids, lookupObjectID(r))
+		}
+	}
+	return oids, nil
+}
+
+func saveIllusts(ils []*pixiv.Illust, cu, cp, cpd, ct, cm *mongo.Collection, usersToUpdate map[int]struct{}) error {
 	ctx := context.Background()
-	cu := db.Collection(model.CollectionUser)
-	cp := db.Collection(model.CollectionPost)
-	cpd := db.Collection(model.CollectionPostDetail)
-	ct := db.Collection(model.CollectionTag)
-	cm := db.Collection(model.CollectionMedia)
 
 	for _, il := range ils {
 		sid := strconv.Itoa(il.ID)
 		if !il.Visible {
-			log.G.Warn("skipped invisible item:", il.ID)
-			_, err := cp.UpdateOne(
-				ctx,
-				d{{Key: "source", Value: "pixiv"}, {Key: "sourceID", Value: sid}},
-				d{{Key: "$set", Value: d{{Key: "sourceInvisible", Value: true}}}},
-				optsUUpsert)
+			log.G.Warn("skipped invisible item:", sid)
+			err := updateInvisiblePost(ctx, model.PostSourcePixivIllust, sid, cp)
 			if err != nil {
 				return err
 			}
 			continue
 		}
 
-		p, pd := model.Post{
+		p, pd := &model.Post{
 			Extension: &model.ExtPost{Pixiv: &model.PixivPost{
 				IsBookmarked:   il.IsBookmarked,
 				TotalBookmarks: il.TotalBookmarks,
 				TotalViews:     il.TotalView,
 			}},
-			Source:   "pixiv",
+			Source:   model.PostSourcePixivIllust,
 			SourceID: sid,
-			TagIDs:   make([]primitive.ObjectID, 0, len(il.Tags)),
-		}, model.PostDetail{
-			Extension: &model.ExtPostDetail{Pixiv: &model.PixivIllustDetail{
+		}, &model.PostDetail{
+			Extension: &model.ExtPostDetail{PixivIllust: &model.PixivIllustDetail{
 				Type:        il.Type,
 				CaptionHTML: il.Caption,
 				Title:       il.Title,
@@ -216,105 +237,133 @@ func saveIllusts(ils []*pixiv.Illust, db *mongo.Database, usersToUpdate map[int]
 			}
 		}
 
-		// update & find TagIDs
-		for _, t := range il.Tags {
-			ts := make([]string, 0, 2)
-			if t.Name != "" {
-				ts = append(ts, t.Name)
-			}
-			if t.TranslatedName != "" {
-				ts = append(ts, t.TranslatedName)
-			}
-
-			if len(ts) > 0 {
-				var (
-					r   bson.Raw
-					err error
-				)
-				if len(ts) > 1 {
-					r, err = ct.FindOneAndUpdate(ctx,
-						d{{Key: "source", Value: "pixiv"}, {Key: "alias", Value: d{{Key: "$in", Value: ts}}}},
-						d{{Key: "$addToSet", Value: d{
-							{Key: "alias", Value: d{
-								{Key: "$each", Value: ts}}}}}},
-						optsFOAIDOnly).DecodeBytes()
-				} else if len(ts) == 1 {
-					r, err = ct.FindOneAndUpdate(ctx,
-						d{{Key: "source", Value: "pixiv"}, {Key: "alias", Value: ts[0]}},
-						d{{Key: "$setOnInsert", Value: d{{Key: "alias", Value: ts}}}},
-						optsFOAIDOnly).DecodeBytes()
-				}
-				if err != nil {
-					return err
-				}
-				p.TagIDs = append(p.TagIDs, lookupObjectID(r))
-			}
-		}
-
-		uid := strconv.Itoa(il.User.ID)
-		r, err := cu.FindOneAndUpdate(ctx,
-			d{{Key: "source", Value: "pixiv"}, {Key: "sourceID", Value: uid}},
-			d{{Key: "$set", Value: d{{Key: "extension.pixiv.isFollowed", Value: il.User.IsFollowed}}}},
-			optsFOAIDOnly.SetProjection(d{{Key: "_id", Value: 1}, {Key: "lastModified", Value: 1}})).DecodeBytes()
-		if err != nil {
-			return err
-		}
-		p.OwnerID = lookupObjectID(r)
-		if t, ok := r.Lookup("lastModified").TimeOK(); !ok || time.Since(t) > 240*time.Hour {
-			usersToUpdate[il.User.ID] = struct{}{}
-		}
-		err = updateAvatars(ctx, db, uid, il.User.ProfileImageURLs.Medium)
-		if err != nil {
-			return err
-		}
-
-		r, err = cp.FindOneAndUpdate(ctx,
-			d{{Key: "source", Value: "pixiv"}, {Key: "sourceID", Value: p.SourceID}},
-			d{{Key: "$set", Value: &p}, {Key: "$currentDate", Value: d{{Key: "lastModified", Value: true}}}},
-			optsFOAIDOnly).DecodeBytes()
-		_, err = cpd.UpdateOne(ctx, &pd,
-			d{{Key: "$set", Value: d{{Key: "postID", Value: lookupObjectID(r)}}}},
-			optsUUpsert)
-		if err != nil {
-			return err
-		}
+		savePixivPostAndDetail(ctx, ct, cu, cm, cp, cpd, usersToUpdate, &il.User, p, pd, il.Tags)
 	}
 	return nil
 }
 
-// UpdateAllUsers updates the pixiv user in database.
-// If forceAll is true it updates all pixiv users,
-// otherwise it updates the users whose lastModified is 240h ago
-func UpdateAllUsers(db *mongo.Database, api *pixiv.AppAPI, forceAll bool) error {
+func saveNovels(nos []*pixiv.Novel, cu, cp, cpd, ct, cm, cc *mongo.Collection, api *pixiv.AppAPI, usersToUpdate map[int]struct{}, processed, limit int) (int, error) {
 	ctx := context.Background()
-	cu := db.Collection("users")
-	var filter d
-	if forceAll {
-		filter = d{{Key: "source", Value: "pixiv"}}
-	} else {
-		filter = d{
-			{Key: "source", Value: "pixiv"},
-			{Key: "$or", Value: a{
-				d{{Key: "lastModified", Value: d{{Key: "$exists", Value: false}}}},
-				d{{Key: "lastModified", Value: d{{Key: "$lt", Value: time.Now().Add(-240 * time.Hour)}}}},
+	for _, no := range nos {
+		if limit != 0 && processed >= limit {
+			return processed, nil
+		}
+		processed++
+
+		sid := strconv.Itoa(no.ID)
+		if !no.Visible {
+			log.G.Warn("skipped invisible item:", sid)
+			err := updateInvisiblePost(ctx, model.PostSourcePixivNovel, sid, cp)
+			if err != nil {
+				return processed - 1, err
+			}
+			continue
+		}
+
+		log.G.Info(fmt.Sprintf("Saving novel text: %s (%s)", no.Title, sid))
+		nod, err := api.Novel.Text(no.ID)
+		if err != nil {
+			log.G.Error(err)
+			continue
+		}
+
+		p, pd := &model.Post{
+			Extension: &model.ExtPost{Pixiv: &model.PixivPost{
+				IsBookmarked:   no.IsBookmarked,
+				TotalBookmarks: no.TotalBookmarks,
+				TotalViews:     no.TotalView,
 			}},
+			Source:   model.PostSourcePixivNovel,
+			SourceID: sid,
+			TagIDs:   make([]primitive.ObjectID, 0, len(no.Tags)),
+		}, &model.PostDetail{
+			Extension: &model.ExtPostDetail{PixivNovel: &model.PixivNovelDetail{
+				CaptionHTML: no.Caption,
+				Text:        nod.NovelText,
+				Title:       no.Title,
+			}},
+			Date: no.CreateDate,
+		}
+
+		if no.ImageURLs.Large != "" {
+			id, err := insertMediaWithURL(ctx, cm, model.MediaPixivNovelCover, no.ImageURLs.Large, 0, 0)
+			if err != nil {
+				return processed - 1, err
+			}
+			pd.MediaIDs = []primitive.ObjectID{id}
+		}
+
+		err = savePixivPostAndDetail(ctx, ct, cu, cm, cp, cpd, usersToUpdate, &no.User, p, pd, no.Tags)
+		if err != nil {
+			return processed - 1, err
 		}
 	}
-	cur, err := cu.Find(ctx,
-		filter,
-		options.Find().SetProjection(d{{Key: "sourceID", Value: 1}}))
+	return processed, nil
+}
+
+func updateInvisiblePost(ctx context.Context, source model.PostSource, sid string, cp *mongo.Collection) error {
+	_, err := cp.UpdateOne(
+		ctx,
+		d{{Key: "source", Value: source}, {Key: "sourceID", Value: sid}},
+		d{{Key: "$set", Value: d{{Key: "sourceInvisible", Value: true}}}},
+		optsUUpsert)
+	return err
+}
+
+func loadPixivUser(ctx context.Context, cu *mongo.Collection, usersToUpdate map[int]struct{}, uid int, isFollowed bool, before time.Duration) (primitive.ObjectID, error) {
+	sid := strconv.Itoa(uid)
+
+	r, err := cu.FindOneAndUpdate(ctx,
+		d{{Key: "source", Value: model.SourcePixiv}, {Key: "sourceID", Value: sid}},
+		d{{Key: "$set", Value: d{{Key: "extension.pixiv.isFollowed", Value: isFollowed}}}},
+		optsFUIDOnly.SetProjection(d{{Key: "_id", Value: 1}, {Key: "lastModified", Value: 1}})).DecodeBytes()
+	if err != nil {
+		return primitive.NilObjectID, err
+	}
+	oid := lookupObjectID(r)
+	if t, ok := r.Lookup("lastModified").TimeOK(); !ok || time.Since(t) > before {
+		usersToUpdate[uid] = struct{}{}
+	}
+	return oid, nil
+}
+
+func updatePostDetail(ctx context.Context, source model.PostSource, cp, cpd *mongo.Collection, p *model.Post, pd *model.PostDetail) error {
+	r, err := cp.FindOneAndUpdate(ctx,
+		d{{Key: "source", Value: source}, {Key: "sourceID", Value: p.SourceID}},
+		d{{Key: "$set", Value: p}, {Key: "$currentDate", Value: d{{Key: "lastModified", Value: true}}}},
+		optsFUIDOnly).DecodeBytes()
 	if err != nil {
 		return err
 	}
-	ids := make([]int, 0, 1024)
-	for cur.Next(ctx) {
-		id := cur.Current.Lookup("sourceID").StringValue()
-		idInt, err := strconv.Atoi(id)
+	_, err = cpd.UpdateOne(ctx, pd,
+		d{{Key: "$set", Value: d{{Key: "postID", Value: lookupObjectID(r)}}}},
+		optsUUpsert)
+	return err
+}
+
+func savePixivPostAndDetail(ctx context.Context, ct, cu, cm, cp, cpd *mongo.Collection, usersToUpdate map[int]struct{}, pixivUser *pixiv.User, p *model.Post, pd *model.PostDetail, tags []pixiv.Tag) error {
+	var err error
+	if len(tags) > 0 {
+		p.TagIDs, err = loadPixivTags(ctx, ct, tags)
 		if err != nil {
 			return err
 		}
-		ids = append(ids, idInt)
 	}
-	updateUsers(db, api, ids)
+
+	p.OwnerID, err = loadPixivUser(ctx, cu, usersToUpdate, pixivUser.ID, pixivUser.IsFollowed, 240*time.Hour)
+	if err != nil {
+		return err
+	}
+
+	err = updatePixivAvatars(ctx, cu, cm, strconv.Itoa(pixivUser.ID), pixivUser.ProfileImageURLs.Medium)
+	if err != nil {
+		return err
+	}
+
+	err = updatePostDetail(ctx, p.Source, cp, cpd, p, pd)
+	if err != nil {
+		return err
+	}
+
 	return nil
 }

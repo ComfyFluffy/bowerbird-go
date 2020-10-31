@@ -34,6 +34,7 @@ type Config struct {
 	Storage  StorageConfig
 	Database DatabaseConfig
 	Network  NetworkConfig
+	System   SystemConfig
 
 	Pixiv PixivConfig
 
@@ -69,6 +70,7 @@ type ServerConfig struct {
 
 // DatabaseConfig defines the Database field in Config.
 type DatabaseConfig struct {
+	Enabled      bool
 	MongoURI     string
 	DatabaseName string
 }
@@ -84,6 +86,11 @@ type PixivConfig struct {
 // NetworkConfig defines the Network field in Config.
 type NetworkConfig struct {
 	GlobalProxy string
+}
+
+// SystemConfig defines the System field in Config.
+type SystemConfig struct {
+	FFmpegCommand string
 }
 
 // Load loads the Config from the given json bytes.
@@ -145,6 +152,9 @@ func New() *Config {
 		},
 		Pixiv: PixivConfig{
 			Language: "en",
+		},
+		System: SystemConfig{
+			FFmpegCommand: "ffmpeg",
 		},
 	}
 }

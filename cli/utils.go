@@ -15,10 +15,15 @@ import (
 	"github.com/WOo0W/bowerbird/downloader"
 	"github.com/WOo0W/go-pixiv/pixiv"
 	"github.com/dustin/go-humanize"
+	"github.com/urfave/cli/v2"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 	"go.mongodb.org/mongo-driver/mongo/readpref"
 	"golang.org/x/crypto/ssh/terminal"
+)
+
+const (
+	printGetPixivUsername = "pixiv Username / Email: "
 )
 
 func loadConfigFile(conf *config.Config, path string) error {
@@ -55,8 +60,8 @@ func loadConfigFile(conf *config.Config, path string) error {
 	return nil
 }
 
-func getUserPass() (username, password string) {
-	fmt.Print("Username / Email: ")
+func getUserPass(printUser string) (username, password string) {
+	fmt.Print(printUser)
 	fmt.Scanln(&username)
 
 	fmt.Print("Password: ")
@@ -71,7 +76,7 @@ func getUserPass() (username, password string) {
 // pixiv username and password.
 func authPixiv(api *pixiv.AppAPI, c *config.Config) error {
 	if c.Pixiv.RefreshToken == "" {
-		u, p := getUserPass()
+		u, p := getUserPass(printGetPixivUsername)
 		api.SetUser(u, p)
 		_, err := api.ForceAuth()
 		if err != nil {
@@ -81,7 +86,7 @@ func authPixiv(api *pixiv.AppAPI, c *config.Config) error {
 		api.SetRefreshToken(c.Pixiv.RefreshToken)
 		_, err := api.ForceAuth()
 		if pixiv.IsInvalidCredentials(err) {
-			u, p := getUserPass()
+			u, p := getUserPass(printGetPixivUsername)
 			fmt.Println(u, p)
 			api.SetUser(u, p)
 			_, err := api.ForceAuth()
@@ -121,4 +126,13 @@ func connectToDB(ctx context.Context, uri string) (*mongo.Client, error) {
 		return client, err
 	}
 	return client, nil
+}
+
+func getPixivUserFlag(c *cli.Context, fallbackID int) (id int) {
+	if c.IsSet("user") {
+		id = c.Int("user")
+	} else {
+		id = fallbackID
+	}
+	return id
 }

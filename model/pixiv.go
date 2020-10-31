@@ -41,10 +41,18 @@ type PixivPost struct {
 
 // PixivIllustDetail extends PostDetail with Pixiv's illust struct
 type PixivIllustDetail struct {
-	// Type can be "illust", "manga" or "novel"
-	Type        string `bson:"type,omitempty" json:"type"`
+	// Type can be "illust", "manga" or "ugoira"
+	Type        string `bson:"type,omitempty" json:"type,omitempty"`
 	CaptionHTML string `bson:"captionHTML,omitempty" json:"captionHTML,omitempty"`
 	Title       string `bson:"title,omitempty" json:"title,omitempty"`
+}
+
+// PixivNovelDetail extends PostDetail with Pixiv's novel struct
+type PixivNovelDetail struct {
+	CaptionHTML string             `bson:"captionHTML,omitempty" json:"captionHTML,omitempty"`
+	Title       string             `bson:"title,omitempty" json:"title,omitempty"`
+	Text        string             `bson:"text,omitempty" json:"text,omitempty"`
+	SeriesID    primitive.ObjectID `bson:"seriesID,omitempty" json:"seriesID,omitempty"`
 }
 
 // PixivMedia extends Media with extra info of Pixiv images, especially Ugoiras
