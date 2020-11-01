@@ -302,7 +302,7 @@ Loop:
 }
 
 // ProcessNovels saves pixiv novels to database
-func ProcessNovels(rn *pixiv.RespNovels, limit int, api *pixiv.AppAPI, tags []string, tagsMatchAll bool, db *mongo.Database) {
+func ProcessNovels(rn *pixiv.RespNovels, limit int, api *pixiv.AppAPI, db *mongo.Database, tags []string, tagsMatchAll, forceUpdateText bool) {
 	i := 0
 	usersToUpdate := make(map[int]struct{})
 
@@ -319,7 +319,7 @@ func ProcessNovels(rn *pixiv.RespNovels, limit int, api *pixiv.AppAPI, tags []st
 
 	for {
 		var err error
-		i, err = saveNovels(rn.Novels, cu, cp, cpd, ct, cm, cc, api, usersToUpdate, i, limit)
+		i, err = saveNovels(rn.Novels, cu, cp, cpd, ct, cm, cc, api, usersToUpdate, i, limit, forceUpdateText)
 		if err != nil {
 			log.G.Error(err)
 			return

@@ -270,6 +270,12 @@ func New() *cli.App {
 					{
 						Name:  "novel",
 						Usage: "Save novel to database from pixiv",
+						Flags: []cli.Flag{
+							&cli.BoolFlag{
+								Name:  "force-update",
+								Usage: "Force update the text for all the novel got",
+							},
+						},
 						Before: func(c *cli.Context) error {
 							if db == nil {
 								log.G.Error("Can only save novel while the database is enabled")
@@ -316,7 +322,7 @@ func New() *cli.App {
 										log.G.Error(err)
 										return nil
 									}
-									pixivh.ProcessNovels(rn, c.Int("limit"), pixivapi, c.StringSlice("tags"), c.Bool("tags-match-all"), db)
+									pixivh.ProcessNovels(rn, c.Int("limit"), pixivapi, db, c.StringSlice("tags"), c.Bool("tags-match-all"), c.Bool("force-update"))
 									return nil
 								},
 							},
@@ -329,7 +335,7 @@ func New() *cli.App {
 										log.G.Error(err)
 										return nil
 									}
-									pixivh.ProcessNovels(rn, c.Int("limit"), pixivapi, c.StringSlice("tags"), c.Bool("tags-match-all"), db)
+									pixivh.ProcessNovels(rn, c.Int("limit"), pixivapi, db, c.StringSlice("tags"), c.Bool("tags-match-all"), c.Bool("force-update"))
 									return nil
 								},
 							},

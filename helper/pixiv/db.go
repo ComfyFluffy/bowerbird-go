@@ -242,7 +242,7 @@ func saveIllusts(ils []*pixiv.Illust, cu, cp, cpd, ct, cm *mongo.Collection, use
 	return nil
 }
 
-func saveNovels(nos []*pixiv.Novel, cu, cp, cpd, ct, cm, cc *mongo.Collection, api *pixiv.AppAPI, usersToUpdate map[int]struct{}, processed, limit int) (int, error) {
+func saveNovels(nos []*pixiv.Novel, cu, cp, cpd, ct, cm, cc *mongo.Collection, api *pixiv.AppAPI, usersToUpdate map[int]struct{}, processed, limit int, forceUpdateText bool) (int, error) {
 	ctx := context.Background()
 	for _, no := range nos {
 		if limit != 0 && processed >= limit {
@@ -260,14 +260,7 @@ func saveNovels(nos []*pixiv.Novel, cu, cp, cpd, ct, cm, cc *mongo.Collection, a
 			continue
 		}
 
-		log.G.Info(fmt.Sprintf("Saving novel text: %s (%s)", no.Title, sid))
-		nod, err := api.Novel.Text(no.ID)
-		if err != nil {
-			log.G.Error(err)
-			continue
-		}
-
-		p, pd := &model.Post{
+		p := &model.Post{
 			Extension: &model.ExtPost{Pixiv: &model.PixivPost{
 				IsBookmarked:   no.IsBookmarked,
 				TotalBookmarks: no.TotalBookmarks,
@@ -275,8 +268,46 @@ func saveNovels(nos []*pixiv.Novel, cu, cp, cpd, ct, cm, cc *mongo.Collection, a
 			}},
 			Source:   model.PostSourcePixivNovel,
 			SourceID: sid,
-			TagIDs:   make([]primitive.ObjectID, 0, len(no.Tags)),
-		}, &model.PostDetail{
+		}
+
+		if !forceUpdateText {
+			r, err := cp.FindOne(ctx,
+				d{
+					{Key: "source", Value: model.PostSourcePixivNovel},
+					{Key: "sourceID", Value: sid},
+				}, options.FindOne().SetProjection(d{{Key: "lastModified", Value: true}})).DecodeBytes()
+			if err != nil {
+				if err != mongo.ErrNoDocuments {
+					return processed - 1, err
+				}
+			} else {
+				if t, ok := r.Lookup("lastModified").TimeOK(); ok && time.Since(t) < 240*time.Hour {
+					err = beforeSavingPixivPost(ctx, ct, cu, cm, p, &no.User, usersToUpdate, no.Tags)
+					if err != nil {
+						return processed - 1, err
+					}
+
+					_, err = cp.UpdateOne(ctx,
+						d{{Key: "source", Value: model.PostSourcePixivNovel},
+							{Key: "sourceID", Value: sid}},
+						d{{Key: "$set", Value: p},
+							{Key: "$currentDate", Value: d{{Key: "lastModified", Value: true}}}})
+					if err != nil {
+						return processed - 1, err
+					}
+					continue
+				}
+			}
+		}
+
+		log.G.Info(fmt.Sprintf("Saving novel text: %s (%s)", no.Title, sid))
+		nod, err := api.Novel.Text(no.ID)
+		if err != nil {
+			log.G.Error(err)
+			continue
+		}
+
+		pd := &model.PostDetail{
 			Extension: &model.ExtPostDetail{PixivNovel: &model.PixivNovelDetail{
 				CaptionHTML: no.Caption,
 				Text:        nod.NovelText,
@@ -320,17 +351,18 @@ func loadPixivUser(ctx context.Context, cu *mongo.Collection, usersToUpdate map[
 	if err != nil {
 		return primitive.NilObjectID, err
 	}
-	oid := lookupObjectID(r)
 	if t, ok := r.Lookup("lastModified").TimeOK(); !ok || time.Since(t) > before {
 		usersToUpdate[uid] = struct{}{}
 	}
-	return oid, nil
+	return lookupObjectID(r), nil
 }
 
 func updatePostDetail(ctx context.Context, source model.PostSource, cp, cpd *mongo.Collection, p *model.Post, pd *model.PostDetail) error {
 	r, err := cp.FindOneAndUpdate(ctx,
-		d{{Key: "source", Value: source}, {Key: "sourceID", Value: p.SourceID}},
-		d{{Key: "$set", Value: p}, {Key: "$currentDate", Value: d{{Key: "lastModified", Value: true}}}},
+		d{{Key: "source", Value: source},
+			{Key: "sourceID", Value: p.SourceID}},
+		d{{Key: "$set", Value: p},
+			{Key: "$currentDate", Value: d{{Key: "lastModified", Value: true}}}},
 		optsFUIDOnly).DecodeBytes()
 	if err != nil {
 		return err
@@ -342,6 +374,20 @@ func updatePostDetail(ctx context.Context, source model.PostSource, cp, cpd *mon
 }
 
 func savePixivPostAndDetail(ctx context.Context, ct, cu, cm, cp, cpd *mongo.Collection, usersToUpdate map[int]struct{}, pixivUser *pixiv.User, p *model.Post, pd *model.PostDetail, tags []pixiv.Tag) error {
+	err := beforeSavingPixivPost(ctx, ct, cu, cm, p, pixivUser, usersToUpdate, tags)
+	if err != nil {
+		return err
+	}
+
+	err = updatePostDetail(ctx, p.Source, cp, cpd, p, pd)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func beforeSavingPixivPost(ctx context.Context, ct, cu, cm *mongo.Collection, p *model.Post, pixivUser *pixiv.User, usersToUpdate map[int]struct{}, tags []pixiv.Tag) error {
 	var err error
 	if len(tags) > 0 {
 		p.TagIDs, err = loadPixivTags(ctx, ct, tags)
@@ -355,15 +401,5 @@ func savePixivPostAndDetail(ctx context.Context, ct, cu, cm, cp, cpd *mongo.Coll
 		return err
 	}
 
-	err = updatePixivAvatars(ctx, cu, cm, strconv.Itoa(pixivUser.ID), pixivUser.ProfileImageURLs.Medium)
-	if err != nil {
-		return err
-	}
-
-	err = updatePostDetail(ctx, p.Source, cp, cpd, p, pd)
-	if err != nil {
-		return err
-	}
-
-	return nil
+	return updatePixivAvatars(ctx, cu, cm, strconv.Itoa(pixivUser.ID), pixivUser.ProfileImageURLs.Medium)
 }
