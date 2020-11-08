@@ -24,8 +24,6 @@ NO DELETION
 So history is important: version control
 webdav
 Focus on user uploaded resource
-Auto resolve link
-<br /> is GONE
 
 pixiv
 
@@ -45,3 +43,5 @@ filter: bookmark rate, etc.
 Auto rerty
 list
 cli
+
+Manga/Novel Series support, save all manga/novel in the series if one is in bookmark

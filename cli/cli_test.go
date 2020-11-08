@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"testing"
 
 	"github.com/WOo0W/bowerbird/cli/log"
@@ -9,10 +10,10 @@ import (
 )
 
 func TestConfig(t *testing.T) {
-	log.G.ConsoleLevel = log.DEBUG
+	ctx := log.NewContext(context.Background(), log.New())
 
 	conf := config.New()
-	err := loadConfigFile(conf, "")
+	err := loadConfigFile(ctx, conf, "")
 	if err != nil {
 		t.Error(err)
 	}

@@ -184,13 +184,12 @@ func loadPixivTags(ctx context.Context, ct *mongo.Collection, tags []pixiv.Tag) 
 	return oids, nil
 }
 
-func saveIllusts(ils []*pixiv.Illust, cu, cp, cpd, ct, cm *mongo.Collection, usersToUpdate map[int]struct{}) error {
-	ctx := context.Background()
-
+func savePixivIllusts(ctx context.Context, ils []*pixiv.Illust, cu, cp, cpd, ct, cm *mongo.Collection, usersToUpdate map[int]struct{}) error {
+	logger := log.FromContext(ctx)
 	for _, il := range ils {
 		sid := strconv.Itoa(il.ID)
 		if !il.Visible {
-			log.G.Warn("skipped invisible item:", sid)
+			logger.Warn("Skipped Invisible Item:", sid)
 			err := updateInvisiblePost(ctx, model.PostSourcePixivIllust, sid, cp)
 			if err != nil {
 				return err
@@ -242,8 +241,8 @@ func saveIllusts(ils []*pixiv.Illust, cu, cp, cpd, ct, cm *mongo.Collection, use
 	return nil
 }
 
-func saveNovels(nos []*pixiv.Novel, cu, cp, cpd, ct, cm, cc *mongo.Collection, api *pixiv.AppAPI, usersToUpdate map[int]struct{}, processed, limit int, forceUpdateText bool) (int, error) {
-	ctx := context.Background()
+func saveNovels(ctx context.Context, nos []*pixiv.Novel, cu, cp, cpd, ct, cm, cc *mongo.Collection, api *pixiv.AppAPI, usersToUpdate map[int]struct{}, processed, limit int, forceUpdateText bool) (int, error) {
+	logger := log.FromContext(ctx)
 	for _, no := range nos {
 		if limit != 0 && processed >= limit {
 			return processed, nil
@@ -252,7 +251,7 @@ func saveNovels(nos []*pixiv.Novel, cu, cp, cpd, ct, cm, cc *mongo.Collection, a
 
 		sid := strconv.Itoa(no.ID)
 		if !no.Visible {
-			log.G.Warn("skipped invisible item:", sid)
+			logger.Warn("Skipped Invisible Item:", sid)
 			err := updateInvisiblePost(ctx, model.PostSourcePixivNovel, sid, cp)
 			if err != nil {
 				return processed - 1, err
@@ -300,10 +299,10 @@ func saveNovels(nos []*pixiv.Novel, cu, cp, cpd, ct, cm, cc *mongo.Collection, a
 			}
 		}
 
-		log.G.Info(fmt.Sprintf("Saving novel text: %s (%s)", no.Title, sid))
+		logger.Info(fmt.Sprintf("Saving Novel Text: %s (%s)", no.Title, sid))
 		nod, err := api.Novel.Text(no.ID)
 		if err != nil {
-			log.G.Error(err)
+			logger.Error(err)
 			continue
 		}
 

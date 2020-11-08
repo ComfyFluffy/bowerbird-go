@@ -1,6 +1,7 @@
 package log
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -23,6 +24,27 @@ const (
 	LINE
 	PRINT
 )
+
+// key in context
+type key int
+
+var loggerKey key
+
+// NewContext returns a new Context that carries value u.
+func NewContext(ctx context.Context, logger *Logger) context.Context {
+	return context.WithValue(ctx, loggerKey, logger)
+}
+
+// FromContext returns the *Logger value stored in ctx, panic if not found.
+func FromContext(ctx context.Context) *Logger {
+	return ctx.Value(loggerKey).(*Logger)
+}
+
+// FromContextOK returns the *Logger value stored in ctx, if any.
+func FromContextOK(ctx context.Context) (*Logger, bool) {
+	logger, ok := ctx.Value(loggerKey).(*Logger)
+	return logger, ok
+}
 
 // ParseLevel parses log level from string.
 func ParseLevel(s string) Level {
@@ -78,9 +100,6 @@ func New() *Logger {
 		// LineRefreshRate: 250 * time.Millisecond,
 	}
 }
-
-// G defines the default global Logger
-var G = New()
 
 // Debug logs DEBUG level messages
 func (l *Logger) Debug(a ...interface{}) {

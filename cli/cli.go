@@ -27,6 +27,8 @@ func New() *cli.App {
 	conf := config.New()
 	configFile := ""
 	dbOnly := false
+	logger := log.New()
+	ctx := log.NewContext(context.Background(), logger)
 
 	var (
 		dbc *mongo.Client
@@ -44,7 +46,7 @@ func New() *cli.App {
 		pixivrhc.Backoff = helper.DefaultBackoff
 		pixivrhc.Logger = nil
 		pixivrhc.RequestLogHook = func(l retryablehttp.Logger, req *http.Request, tries int) {
-			log.G.Debug(fmt.Sprintf("pixiv http: %s %s tries: %d", req.Method, req.URL, tries))
+			logger.Debug(fmt.Sprintf("Pixiv HTTP: %s %q Tries: %d", req.Method, req.URL, tries))
 		}
 		tra := pixivrhc.HTTPClient.Transport.(*http.Transport)
 		err := helper.SetTransportProxy(tra, conf.Pixiv.APIProxy, conf.Network.GlobalProxy)
@@ -59,17 +61,17 @@ func New() *cli.App {
 		if err != nil {
 			return err
 		}
-		pixivdl = downloader.NewWithCliet(&http.Client{Transport: trd})
+		pixivdl = downloader.NewWithCliet(ctx, &http.Client{Transport: trd})
 
 		err = authPixiv(pixivapi, conf)
 		if err != nil {
-			return fmt.Errorf("pixiv: auth failed: %w", err)
+			return fmt.Errorf("pixiv auth failed: %w", err)
 		}
-		log.G.Info(fmt.Sprintf("pixiv: logged as %s (%d)", pixivapi.AuthResponse.Response.User.Name, pixivapi.UserID))
+		logger.Info(fmt.Sprintf("Pixiv: Logged as %s (%d)", pixivapi.AuthResponse.Response.User.Name, pixivapi.UserID))
 		conf.Pixiv.RefreshToken = pixivapi.RefreshToken
 		err = conf.Save()
 		if err != nil {
-			return fmt.Errorf("error saving config: %w", err)
+			return fmt.Errorf("saving config: %w", err)
 		}
 		return nil
 	}
@@ -93,27 +95,26 @@ func New() *cli.App {
 			},
 		},
 		Before: func(c *cli.Context) error {
-			err := loadConfigFile(conf, configFile)
+			err := loadConfigFile(ctx, conf, configFile)
 			if err != nil {
-				log.G.Error("loading config:", err)
+				logger.Error("Loading Config:", err)
 				return nil
 			}
 
-			log.G.ConsoleLevel = log.ParseLevel(conf.Log.ConsoleLevel)
-			log.G.FileLevel = log.ParseLevel(conf.Log.FileLevel)
+			logger.ConsoleLevel = log.ParseLevel(conf.Log.ConsoleLevel)
+			logger.FileLevel = log.ParseLevel(conf.Log.FileLevel)
 
 			if conf.Database.Enabled {
-				ctx := context.Background()
 				var err error
 				dbc, err = connectToDB(ctx, conf.Database.MongoURI)
 				if err != nil {
-					log.G.Error("cannot connect to database:", err)
+					logger.Error("Cannot Connect to Database:", err)
 					return nil
 				}
 				db = dbc.Database(conf.Database.DatabaseName)
 				err = model.EnsureIndexes(ctx, db)
 				if err != nil {
-					log.G.Error(err)
+					logger.Error(err)
 					return nil
 				}
 			}
@@ -125,7 +126,7 @@ func New() *cli.App {
 				Action: func(c *cli.Context) error {
 					err := server.Serve(conf, db)
 					if err != nil {
-						log.G.Error(err)
+						logger.Error(err)
 					}
 					return nil
 				},
@@ -157,7 +158,7 @@ func New() *cli.App {
 				Before: func(c *cli.Context) error {
 					err := initPixiv()
 					if err != nil {
-						log.G.Error(err)
+						logger.Error(err)
 						return cli.Exit("", 1)
 					}
 					return nil
@@ -178,7 +179,7 @@ func New() *cli.App {
 						},
 						Action: func(c *cli.Context) error {
 							if !conf.Database.Enabled {
-								log.G.Error("User profiles are not saved without database.")
+								logger.Error("User Profiles Are Not Saved Without Database.")
 								return nil
 							}
 							var du time.Duration
@@ -187,9 +188,9 @@ func New() *cli.App {
 							} else {
 								du = 240 * time.Hour
 							}
-							err := pixivh.UpdateAllUsers(db, pixivapi, c.Bool("all"), du)
+							err := pixivh.UpdateAllUsers(ctx, db, pixivapi, c.Bool("all"), du)
 							if err != nil {
-								log.G.Error(err)
+								logger.Error(err)
 							}
 							return nil
 						},
@@ -230,12 +231,12 @@ func New() *cli.App {
 
 									r, err := pixivapi.User.BookmarkedIllusts(uid, restrict, opt)
 									if err != nil {
-										log.G.Error(err)
+										logger.Error(err)
 										return nil
 									}
 
 									pixivdl.Start()
-									pixivh.ProcessIllusts(r, c.Int("limit"), pixivdl, pixivapi, conf.Storage.ParsedPixiv(), c.StringSlice("tags"), c.Bool("tags-match-all"), db, dbOnly)
+									pixivh.ProcessIllusts(ctx, r, c.Int("limit"), pixivdl, pixivapi, conf.Storage.ParsedPixiv(), c.StringSlice("tags"), c.Bool("tags-match-all"), db, dbOnly)
 									downloaderUILoop(pixivdl)
 									return nil
 								},
@@ -255,12 +256,12 @@ func New() *cli.App {
 									}
 									ri, err := pixivapi.User.Illusts(uid, opt)
 									if err != nil {
-										log.G.Error(err)
+										logger.Error(err)
 										return nil
 									}
 
 									pixivdl.Start()
-									pixivh.ProcessIllusts(ri, c.Int("limit"), pixivdl, pixivapi, conf.Storage.ParsedPixiv(), c.StringSlice("tags"), c.Bool("tags-match-all"), db, dbOnly)
+									pixivh.ProcessIllusts(ctx, ri, c.Int("limit"), pixivdl, pixivapi, conf.Storage.ParsedPixiv(), c.StringSlice("tags"), c.Bool("tags-match-all"), db, dbOnly)
 									downloaderUILoop(pixivdl)
 									return nil
 								},
@@ -278,7 +279,7 @@ func New() *cli.App {
 						},
 						Before: func(c *cli.Context) error {
 							if db == nil {
-								log.G.Error("Can only save novel while the database is enabled")
+								logger.Error("Can Only Save Novel When Database Enabled")
 								return cli.Exit("", 1)
 							}
 							return nil
@@ -319,10 +320,10 @@ func New() *cli.App {
 
 									rn, err := pixivapi.User.BookmarkedNovels(uid, restrict, opt)
 									if err != nil {
-										log.G.Error(err)
+										logger.Error(err)
 										return nil
 									}
-									pixivh.ProcessNovels(rn, c.Int("limit"), pixivapi, db, c.StringSlice("tags"), c.Bool("tags-match-all"), c.Bool("force-update"))
+									pixivh.ProcessNovels(ctx, rn, c.Int("limit"), pixivapi, db, c.StringSlice("tags"), c.Bool("tags-match-all"), c.Bool("force-update"))
 									return nil
 								},
 							},
@@ -332,10 +333,10 @@ func New() *cli.App {
 									uid := getPixivUserFlag(c, pixivapi.UserID)
 									rn, err := pixivapi.User.Novels(uid)
 									if err != nil {
-										log.G.Error(err)
+										logger.Error(err)
 										return nil
 									}
-									pixivh.ProcessNovels(rn, c.Int("limit"), pixivapi, db, c.StringSlice("tags"), c.Bool("tags-match-all"), c.Bool("force-update"))
+									pixivh.ProcessNovels(ctx, rn, c.Int("limit"), pixivapi, db, c.StringSlice("tags"), c.Bool("tags-match-all"), c.Bool("force-update"))
 									return nil
 								},
 							},

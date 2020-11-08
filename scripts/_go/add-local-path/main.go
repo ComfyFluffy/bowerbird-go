@@ -78,7 +78,6 @@ func addPathField() {
 			if _, err := os.Stat(lf); os.IsNotExist(err) {
 				continue
 			}
-			// log.G.Info(fmt.Sprintf("m.ID %s fp %s lf %s m %+v p %+v pd %+v", m.ID, fp, lf, m, p, pd))
 
 			// return nil
 			_, err = cm.UpdateOne(ctx,

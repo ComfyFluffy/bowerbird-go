@@ -8,9 +8,6 @@ import (
 // Stderr colored output for Windows
 var Stderr = colorable.NewColorableStderr()
 
-// Stdout colored output for Windows
-var Stdout = colorable.NewColorableStderr()
-
 // Colors used in the cli
 var (
 	HiBlack  = color.New(color.FgHiBlack)

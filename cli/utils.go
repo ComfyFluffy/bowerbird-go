@@ -26,7 +26,8 @@ const (
 	printGetPixivUsername = "pixiv Username / Email: "
 )
 
-func loadConfigFile(conf *config.Config, path string) error {
+func loadConfigFile(ctx context.Context, conf *config.Config, path string) error {
+	logger := log.FromContext(ctx)
 	if path == "" {
 		if err := os.MkdirAll(conf.Storage.RootDir, 0755); err != nil && !os.IsExist(err) {
 			return err
@@ -37,7 +38,7 @@ func loadConfigFile(conf *config.Config, path string) error {
 	b, err := ioutil.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			log.G.Info("creating new config file:", path)
+			logger.Info(fmt.Sprintf("Creating New Config File: %q", path))
 			if b, err = conf.Marshal(); err != nil {
 				return err
 			}
@@ -52,11 +53,11 @@ func loadConfigFile(conf *config.Config, path string) error {
 	conf.Path = path
 	err = conf.Save()
 	if err != nil {
-		log.G.Warn("can not save config file:", path, "\n", err)
+		logger.Warn("Cannot Save Config File:", err)
 	}
 
-	log.G.ConsoleLevel = log.ParseLevel(conf.Log.ConsoleLevel)
-	log.G.FileLevel = log.ParseLevel(conf.Log.FileLevel)
+	logger.ConsoleLevel = log.ParseLevel(conf.Log.ConsoleLevel)
+	logger.FileLevel = log.ParseLevel(conf.Log.FileLevel)
 	return nil
 }
 
@@ -116,7 +117,6 @@ func downloaderUILoop(dl *downloader.Downloader) {
 }
 
 func connectToDB(ctx context.Context, uri string) (*mongo.Client, error) {
-	log.G.Info("connecting to database")
 	client, err := mongo.Connect(ctx, options.Client().ApplyURI(uri))
 	if err != nil {
 		return client, err

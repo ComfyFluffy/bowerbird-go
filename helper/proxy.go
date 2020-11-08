@@ -9,7 +9,7 @@ import (
 	"golang.org/x/net/proxy"
 )
 
-func FirstNonEmptyString(s ...string) string {
+func firstNonEmptyString(s ...string) string {
 	for _, x := range s {
 		if x != "" {
 			return x
@@ -21,7 +21,7 @@ func FirstNonEmptyString(s ...string) string {
 // SetTransportProxy sets the proxy of the transport
 // to the first given non-empty url.
 func SetTransportProxy(tr *http.Transport, uris ...string) error {
-	uri := FirstNonEmptyString(uris...)
+	uri := firstNonEmptyString(uris...)
 	if uri == "" {
 		return nil
 	}
