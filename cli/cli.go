@@ -67,7 +67,7 @@ func New() *cli.App {
 		if err != nil {
 			return fmt.Errorf("pixiv auth failed: %w", err)
 		}
-		logger.Info(fmt.Sprintf("Pixiv: Logged as %s (%d)", pixivapi.AuthResponse.Response.User.Name, pixivapi.UserID))
+		logger.Info(fmt.Sprintf("pixiv: Logged as %s (%d)", pixivapi.AuthResponse.Response.User.Name, pixivapi.UserID))
 		conf.Pixiv.RefreshToken = pixivapi.RefreshToken
 		err = conf.Save()
 		if err != nil {
@@ -97,7 +97,7 @@ func New() *cli.App {
 		Before: func(c *cli.Context) error {
 			err := loadConfigFile(ctx, conf, configFile)
 			if err != nil {
-				logger.Error("Loading Config:", err)
+				logger.Error("Loading config:", err)
 				return nil
 			}
 
@@ -108,7 +108,7 @@ func New() *cli.App {
 				var err error
 				dbc, err = connectToDB(ctx, conf.Database.MongoURI)
 				if err != nil {
-					logger.Error("Cannot Connect to Database:", err)
+					logger.Error("Cannot connect to database:", err)
 					return nil
 				}
 				db = dbc.Database(conf.Database.DatabaseName)
@@ -179,7 +179,7 @@ func New() *cli.App {
 						},
 						Action: func(c *cli.Context) error {
 							if !conf.Database.Enabled {
-								logger.Error("User Profiles Are Not Saved Without Database.")
+								logger.Error("User profiles are not saved without database.")
 								return nil
 							}
 							var du time.Duration
@@ -279,7 +279,7 @@ func New() *cli.App {
 						},
 						Before: func(c *cli.Context) error {
 							if db == nil {
-								logger.Error("Can Only Save Novel When Database Enabled")
+								logger.Error("Can only save novel when database enabled")
 								return cli.Exit("", 1)
 							}
 							return nil

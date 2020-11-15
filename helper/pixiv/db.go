@@ -189,7 +189,7 @@ func savePixivIllusts(ctx context.Context, ils []*pixiv.Illust, cu, cp, cpd, ct,
 	for _, il := range ils {
 		sid := strconv.Itoa(il.ID)
 		if !il.Visible {
-			logger.Warn("Skipped Invisible Item:", sid)
+			logger.Warn("Skipped invisible item:", sid)
 			err := updateInvisiblePost(ctx, model.PostSourcePixivIllust, sid, cp)
 			if err != nil {
 				return err
@@ -251,7 +251,7 @@ func saveNovels(ctx context.Context, nos []*pixiv.Novel, cu, cp, cpd, ct, cm, cc
 
 		sid := strconv.Itoa(no.ID)
 		if !no.Visible {
-			logger.Warn("Skipped Invisible Item:", sid)
+			logger.Warn("Skipped invisible item:", sid)
 			err := updateInvisiblePost(ctx, model.PostSourcePixivNovel, sid, cp)
 			if err != nil {
 				return processed - 1, err
@@ -299,7 +299,7 @@ func saveNovels(ctx context.Context, nos []*pixiv.Novel, cu, cp, cpd, ct, cm, cc
 			}
 		}
 
-		logger.Info(fmt.Sprintf("Saving Novel Text: %s (%s)", no.Title, sid))
+		logger.Info(fmt.Sprintf("Saving novel text: %s (%s)", no.Title, sid))
 		nod, err := api.Novel.Text(no.ID)
 		if err != nil {
 			logger.Error(err)

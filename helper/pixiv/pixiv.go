@@ -114,7 +114,7 @@ func updateUserSet(ctx context.Context, cu, cud, cm *mongo.Collection, api *pixi
 
 func updatePixivUserProfiles(ctx context.Context, cu, cud, cm *mongo.Collection, api *pixiv.AppAPI, userIDs []int) {
 	logger := log.FromContext(ctx)
-	logger.Info("Updating", len(userIDs), "User Profiles...")
+	logger.Info("Updating", len(userIDs), "user profiles...")
 	for i, id := range userIDs {
 		// Current:
 		r, err := api.User.Detail(id, nil)
@@ -134,7 +134,7 @@ func updatePixivUserProfiles(ctx context.Context, cu, cud, cm *mongo.Collection,
 			logger.Error(err)
 			continue
 		}
-		logger.Info(fmt.Sprintf("[%d/%d] Updated User Profile %s (%d)", i+1, len(userIDs), r.User.Name, r.User.ID))
+		logger.Info(fmt.Sprintf("[%d/%d] Updated user profile for %s (%d)", i+1, len(userIDs), r.User.Name, r.User.ID))
 	}
 }
 
@@ -278,9 +278,9 @@ Loop:
 				}
 				i++
 			}
-			logger.Info(i, "Items Were Sent to Download Queue")
+			logger.Info(i, "Items were sent to download queue")
 		} else {
-			logger.Info(idb, "Items Processed to Database")
+			logger.Info(idb, "Items saved to database")
 			if limit != 0 && idb >= limit {
 				break Loop
 			}
@@ -297,7 +297,7 @@ Loop:
 			return
 		}
 	}
-	logger.Info("All", i, "Items Processed")
+	logger.Info("All", i, "items processed")
 
 	updateUserSet(ctx, cu, cud, cm, api, usersToUpdate)
 }
@@ -338,7 +338,7 @@ func ProcessNovels(ctx context.Context, rn *pixiv.RespNovels, limit int, api *pi
 		}
 	}
 
-	logger.Info("All", i, "Items Processed")
+	logger.Info("All", i, "items processed")
 
 	updateUserSet(ctx, cu, cud, cm, api, usersToUpdate)
 }

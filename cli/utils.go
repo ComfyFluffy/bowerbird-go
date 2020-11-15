@@ -38,7 +38,7 @@ func loadConfigFile(ctx context.Context, conf *config.Config, path string) error
 	b, err := ioutil.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			logger.Info(fmt.Sprintf("Creating New Config File: %q", path))
+			logger.Info(fmt.Sprintf("Creating new config: %q", path))
 			if b, err = conf.Marshal(); err != nil {
 				return err
 			}
@@ -53,7 +53,7 @@ func loadConfigFile(ctx context.Context, conf *config.Config, path string) error
 	conf.Path = path
 	err = conf.Save()
 	if err != nil {
-		logger.Warn("Cannot Save Config File:", err)
+		logger.Warn("Cannot save config file:", err)
 	}
 
 	logger.ConsoleLevel = log.ParseLevel(conf.Log.ConsoleLevel)

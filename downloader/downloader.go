@@ -19,7 +19,6 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"strconv"
 	"sync"
 	"time"
 
@@ -153,8 +152,6 @@ func (d *Downloader) worker() {
 // Start runs background goroutines of the downloader.
 func (d *Downloader) Start() {
 	d.once.Do(func() {
-		d.Logger.Debug("Starting Downloader")
-
 		d.globleBytesTicker = time.NewTicker(1 * time.Second)
 
 		go func() {
@@ -184,7 +181,6 @@ func (d *Downloader) Start() {
 
 // Stop terminates background goroutines and tickers.
 func (d *Downloader) Stop() {
-	d.Logger.Debug("Stopping Downloader")
 	close(d.stopAll)
 	d.globleBytesTicker.Stop()
 }
@@ -243,45 +239,50 @@ func (d *Downloader) Download(t *Task) {
 	fn := filepath.Base(t.LocalPath)
 
 	onErr := func(message string, err error) {
-		d.Logger.Error(fmt.Sprintf("Task Failed: Download %q to %q: %s: %s", t.Request.URL, t.LocalPath, message, err))
+		d.Logger.Error(fmt.Sprintf("Task failed: Download %q to %q: %s: %s", t.Request.URL, t.LocalPath, message, err))
 		t.Status = Failed
 		t.Err = err
 	}
 
-	d.Logger.Debug("Starting Task", req.URL, t.LocalPath, req.Header)
+	d.Logger.Debug(fmt.Sprintf("Starting task %q -> %q", req.URL, t.LocalPath))
 
 	os.MkdirAll(filepath.Dir(t.LocalPath), 0755)
-	f, err := os.OpenFile(part, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0644)
+	f, err := os.OpenFile(part, os.O_RDWR|os.O_CREATE, 0644)
 	if err != nil {
-		onErr("Opening File", err)
+		onErr("Opening file", err)
 		return
 	}
 	defer f.Close()
 
 	fi, err := f.Stat()
 	if err != nil {
-		d.Logger.Error("Stating File", part, err)
+		d.Logger.Error("Stating file", part, err)
 	} else {
-		// get the size of downloaded part
+		// Get the size of downloaded part
 		bytes = fi.Size()
+	}
+
+	if bytes > 0 {
+		// Write to the end of the file
+		f.Seek(0, 2)
 	}
 
 	for {
 		if bytes > 0 {
 			// skip the downloaded part
 			req.Header["Range"] = []string{fmt.Sprintf("bytes=%d-", bytes)}
-			d.Logger.Debug("Trying Again With Header:", req.Header)
+			d.Logger.Debug("Trying again with header:", req.Header)
 		}
 
 		tries++
 		if tries > d.TriesMax {
-			onErr("Max Tries", err)
+			onErr("Max tries", err)
 			return
 		}
 		if tries > 1 {
 			select {
 			case <-ctx.Done():
-				d.Logger.Debug("Task Canceled By Context:", ctx.Err())
+				d.Logger.Debug("Task canceled by context:", ctx.Err())
 				t.Status = Canceled
 				return
 			case <-time.After(d.Backoff(d.RetryWaitMin, d.RetryWaitMax, tries, nil)):
@@ -290,7 +291,7 @@ func (d *Downloader) Download(t *Task) {
 
 		resp, err := d.Client.Do(req)
 		if err != nil {
-			d.Logger.Debug("Response Error:", err)
+			d.Logger.Warn(err)
 			continue
 		}
 
@@ -307,17 +308,21 @@ func (d *Downloader) Download(t *Task) {
 			return
 		}
 
+		if resp.ContentLength == -1 {
+			d.Logger.Warn(fmt.Sprintf("File %q started with Content-Length unknown: Request headers: %v Response headers: %v", t.LocalPath, req.Header, resp.Header))
+		}
+
 		written, err := t.copy(f, resp.Body, d.bytesChan)
 
 		onFinished := func() {
 			f.Close()
 			err := os.Rename(part, t.LocalPath)
 			if err != nil {
-				onErr("Renaming File", err)
+				onErr("Renaming file", err)
 				return
 			}
 			t.Status = Finished
-			d.Logger.Info("Task Finished:", fn, "Size:", strconv.FormatInt(written, 10))
+			d.Logger.Info(fmt.Sprintf("Task finished: %q Size: %d", fn, written))
 			if t.AfterFinished != nil {
 				// call AfterFinished hook
 				t.AfterFinished(t)
@@ -331,12 +336,11 @@ func (d *Downloader) Download(t *Task) {
 			onFinished()
 			return
 		} else if resp.ContentLength == -1 {
-			d.Logger.Warn(fmt.Sprintf("File %q Done With Content-Length Unknown, Request Headers: %v Response Headers: %v", fn, req.Header, resp.Header))
 			if !t.NoImageChecking && strings.HasPrefix(resp.Header.Get("Content-Type"), "image/") {
-				d.Logger.Debug("Checking Image", part)
+				d.Logger.Debug("Checking image", part)
 				_, err = f.Seek(0, 0)
 				if err != nil {
-					onErr(fmt.Sprintf("Checking Image %q", part), err)
+					onErr(fmt.Sprintf("Checking image %q", part), err)
 					return
 				}
 				_, _, err = image.Decode(f)
@@ -346,9 +350,10 @@ func (d *Downloader) Download(t *Task) {
 				}
 				_, err = f.Seek(0, 0)
 				if err != nil {
-					onErr("After Checking Image", err)
+					onErr("After checking image", err)
 					return
 				}
+				d.Logger.Warn(fmt.Sprintf("Broken image %q: Trying again", part))
 				bytes = 0
 			} else {
 				onFinished()
@@ -356,9 +361,9 @@ func (d *Downloader) Download(t *Task) {
 			}
 		}
 
-		d.Logger.Debug(fmt.Sprintf("ContentLength Doesn't Match, Bytes Written: %d, ContentLength: %d, URL: %q, Saving To: %q, Request Header: %v, Response Header: %v, Error: %v", written, resp.ContentLength, req.URL, t.LocalPath, req.Header, resp.Header, err))
+		d.Logger.Warn(fmt.Sprintf("ContentLength doesn't match. Bytes Written: %d ContentLength: %d URL: %q File: %q, Request header: %v Response header: %v Error: %v", written, resp.ContentLength, req.URL, t.LocalPath, req.Header, resp.Header, err))
 		if err := f.Sync(); err != nil {
-			onErr("Saving File", err)
+			onErr("Saving file", err)
 			return
 		}
 
