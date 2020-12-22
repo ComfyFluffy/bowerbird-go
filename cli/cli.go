@@ -46,7 +46,7 @@ func New() *cli.App {
 		pixivrhc.Backoff = helper.DefaultBackoff
 		pixivrhc.Logger = nil
 		pixivrhc.RequestLogHook = func(l retryablehttp.Logger, req *http.Request, tries int) {
-			logger.Debug(fmt.Sprintf("Pixiv HTTP: %s %q Tries: %d", req.Method, req.URL, tries))
+			logger.Debug(fmt.Sprintf("pixiv HTTP: %s %q Tries: %d", req.Method, req.URL, tries))
 		}
 		tra := pixivrhc.HTTPClient.Transport.(*http.Transport)
 		err := helper.SetTransportProxy(tra, conf.Pixiv.APIProxy, conf.Network.GlobalProxy)

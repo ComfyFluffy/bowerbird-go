@@ -249,8 +249,9 @@ Loop:
 						// string like `C:\test\12345\67891_p0_20200202123456.jpg`
 						LocalPath: filepath.Join(basePath, fp),
 					}
-					setAfterFinishedFunc(ctx, cm, t, il.MetaSinglePage.OriginalImageURL, fp)
-
+					if db != nil {
+						setAfterFinishedFunc(ctx, cm, t, il.MetaSinglePage.OriginalImageURL, fp)
+					}
 					dl.Add(t)
 				} else {
 					for _, iu := range il.MetaPages {
@@ -278,7 +279,7 @@ Loop:
 				}
 				i++
 			}
-			logger.Info(i, "Items were sent to download queue")
+			logger.Info(i, "items were sent to download queue")
 		} else {
 			logger.Info(idb, "Items saved to database")
 			if limit != 0 && idb >= limit {

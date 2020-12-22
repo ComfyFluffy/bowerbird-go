@@ -233,8 +233,8 @@ func (d *Downloader) Download(t *Task) {
 
 	ctx := t.Request.Context()
 	req := t.Request.Clone(ctx)
-	tries := 0
-	bytes := int64(0)
+	var tries int
+	var bytes int64
 	part := t.LocalPath + ".part"
 	fn := filepath.Base(t.LocalPath)
 
@@ -244,7 +244,7 @@ func (d *Downloader) Download(t *Task) {
 		t.Err = err
 	}
 
-	d.Logger.Debug(fmt.Sprintf("Starting task %q -> %q", req.URL, t.LocalPath))
+	d.Logger.Debug(fmt.Sprintf("Starting task %q -> %s", req.URL, t.LocalPath))
 
 	os.MkdirAll(filepath.Dir(t.LocalPath), 0755)
 	f, err := os.OpenFile(part, os.O_RDWR|os.O_CREATE, 0644)
